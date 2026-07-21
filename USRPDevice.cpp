@@ -1,4 +1,5 @@
 #include "USRPDevice.h"
+#include <algorithm>
 //#include "Utils.h"
 
 USRPDevice::USRPDevice()
@@ -61,7 +62,7 @@ void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& 
 			continue;
 		}
 		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) {
-			// Буфер переполнен (процессор или сеть не успевают за USRP). 
+			// Буфер переполнен (процессор или сеть не успевают за USRP).
 			// Печатаем "O" (стандартное поведение UHD) и продолжаем.
 			std::cerr << "O" << std::flush;
 			continue;
@@ -76,8 +77,8 @@ void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& 
 			is_data_ready.store(true);
 		}
 	}
-	
-	
+
+
 }
 
 double USRPDevice::SetFrequency(const double frequency)
@@ -92,4 +93,25 @@ double USRPDevice::SetSamplingRate(const double rate)
 	usrp_device->set_rx_rate(rate * 1e6);
 	sample_rate = usrp_device->get_rx_rate();
 	return sample_rate / 1e6;
+}
+
+std::vector<double> USRPDevice::GetAvailableSamplingRates() const
+{
+	std::vector<double> rates_mhz;
+	const double master_clock_rate = usrp_device->get_master_clock_rate();
+	const int max_decimation = static_cast<int>(master_clock_rate / 1e6);
+
+	rates_mhz.reserve(max_decimation);
+	for (int decimation = 1; decimation <= max_decimation; ++decimation)
+	{
+		if ((decimation > 256 && decimation % 4 != 0) || (decimation > 128 && decimation % 2 != 0))
+		{
+			continue;
+		}
+
+		rates_mhz.push_back((master_clock_rate / decimation) / 1e6);
+	}
+
+	std::sort(rates_mhz.begin(), rates_mhz.end());
+	return rates_mhz;
 }
