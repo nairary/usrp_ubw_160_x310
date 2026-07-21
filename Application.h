@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "USRPDevice.h"
 #include "PlotFunctions.h"
@@ -32,7 +33,9 @@ private:
 	ImGuiIO io;
 
 	double current_frequency = 0.0;
-	double current_sampling_rate = 0.0;
+	double current_sampling_rate = 10.0;
+	int selected_sampling_rate_index = 0;
+	std::vector<double> sampling_rates_mhz;
 	const double frequency_max = 6000;
 	const double frequency_min = 10;
 };

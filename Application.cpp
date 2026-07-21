@@ -7,7 +7,7 @@ Application::Application(const int width, const int height)
     local_data.resize(FFT_SIZE);
     if (!glfwInit())
         throw std::runtime_error("GLFW runtime error");
-    
+
     const char* glsl_version = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
@@ -18,38 +18,38 @@ Application::Application(const int width, const int height)
         throw std::runtime_error("Creating window error");
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
-    
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImPlot::CreateContext();
-    io = ImGui::GetIO(); 
+    io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
-    
+
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
     //ImGui::StyleColorsLight();
-    
+
     // Setup scaling
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
     style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
-    
+
     io.ConfigDpiScaleFonts = true;          // [Experimental] Automatically overwrite style.FontScaleDpi in Begin() when Monitor DPI changes. This will scale fonts but _NOT_ scale sizes/padding for now.
     io.ConfigDpiScaleViewports = true;      // [Experimental] Scale Dear ImGui and Platform Windows when Monitor DPI changes.
-    
+
     // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         style.WindowRounding = 0.0f;
         style.Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
-    
+
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
@@ -84,13 +84,51 @@ void Application::ShowUSRPInterface()
                 (current_frequency > frequency_max) ? frequency_max : current_frequency;
             usrp_device->SetFrequency(current_frequency);
 
+            if (sampling_rates_mhz.empty())
+            {
+                sampling_rates_mhz = usrp_device->GetAvailableSamplingRates();
+                current_sampling_rate = usrp_device->GetSamplingRate() / 1e6;
+                for (int i = 0; i < static_cast<int>(sampling_rates_mhz.size()); ++i)
+                {
+                    if (sampling_rates_mhz[i] >= current_sampling_rate)
+                    {
+                        selected_sampling_rate_index = i;
+                        break;
+                    }
+                }
+            }
+
+            if (!sampling_rates_mhz.empty())
+            {
+                char sampling_rate_label[32];
+                snprintf(sampling_rate_label, sizeof(sampling_rate_label), "%.3f MHz", sampling_rates_mhz[selected_sampling_rate_index]);
+                if (ImGui::BeginCombo("Sampling rate", sampling_rate_label))
+                {
+                    for (int i = 0; i < static_cast<int>(sampling_rates_mhz.size()); ++i)
+                    {
+                        const bool is_selected = (selected_sampling_rate_index == i);
+                        char item_label[32];
+                        snprintf(item_label, sizeof(item_label), "%.3f MHz", sampling_rates_mhz[i]);
+                        if (ImGui::Selectable(item_label, is_selected))
+                        {
+                            selected_sampling_rate_index = i;
+                            current_sampling_rate = usrp_device->SetSamplingRate(sampling_rates_mhz[i]);
+                        }
+                        if (is_selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::Text("Current sampling rate: %.3f MHz", current_sampling_rate);
+            }
+
         }
-            
+
         ImGui::End();
         if (usrp_device_exists.load())
         {
             // Логика, контролирующая стрим данных
-          
+
             if (!usrp_device->IsStreaming())
             {
                 if (ImGui::Button("Start stream"))
@@ -148,7 +186,7 @@ void Application::Run()
     current_io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     while (!glfwWindowShouldClose(window))
     {
-        
+
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
         // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.

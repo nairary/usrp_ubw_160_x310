@@ -12,6 +12,7 @@
 #include <iostream>
 #include <thread>
 #include <filesystem>
+#include <vector>
 
 #include "ReaTimeFFT.h"
 
@@ -36,10 +37,12 @@
 		double SetSamplingRate(const double rate);
 		// Получить частоту дискретизации в Гц
 		double GetSamplingRate() const { return usrp_device->get_rx_rate(); };
+		// Получить список частот дискретизации в МГц, вычисленный из master clock rate
+		std::vector<double> GetAvailableSamplingRates() const;
 	private:
 		std::vector<std::complex<int16_t>> usrpBuffer;
 		uhd::rx_streamer::sptr rx_stream;
- 		uhd::usrp::multi_usrp::sptr usrp_device;
+		uhd::usrp::multi_usrp::sptr usrp_device;
 		uhd::rx_metadata_t md;
 		double sample_rate = 10e6;
 		double center_freq = 1.001e9;
