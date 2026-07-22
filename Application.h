@@ -2,10 +2,14 @@
 #include "Core.h"
 #include "imgui/implot.h"
 #include <stdexcept>
+#include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+#include <deque>
 
 #include "USRPDevice.h"
 #include "PlotFunctions.h"
@@ -19,6 +23,9 @@ public:
 	void ShowUSRPInterface();
 	void CreateUSRPDevice();
 	void GetAndRenderStreamingData();
+	void ResetSpectrumAveraging();
+	void UpdateSpectrumAveraging(const std::vector<float>& spectrum, double sampling_rate_hz);
+	const std::vector<float>& GetSpectrumForPlot() const;
 	void Run();
 	~Application();
 private:
@@ -29,6 +36,13 @@ private:
 	std::vector<std::jthread> app_threads;
 	std::vector<float> local_data;
 	std::vector<float> temp_data;
+	std::vector<float> averaged_data;
+	std::vector<float> average_sum;
+	std::deque<std::vector<float>> average_history;
+	std::atomic_uint64_t data_sequence = 0;
+	uint64_t last_averaged_sequence = 0;
+	bool average_spectrum_enabled = false;
+	float average_time_seconds = 1.0f;
 	GLFWwindow* window = nullptr;
 	ImGuiIO io;
 
