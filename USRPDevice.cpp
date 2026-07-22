@@ -20,7 +20,7 @@ USRPDevice::USRPDevice()
 
 	usrp_device->set_rx_rate(sample_rate);
 	usrp_device->set_rx_freq(center_freq);
-	usrp_device->set_rx_gain(gain);
+	usrp_device->set_rx_gain(rx_gain);
 
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -95,21 +95,34 @@ double USRPDevice::SetSamplingRate(const double rate)
 	return sample_rate / 1e6;
 }
 
+double USRPDevice::SetRXGain(const double gain)
+{
+	usrp_device->set_rx_gain(gain);
+	rx_gain = usrp_device->get_rx_gain();
+	return rx_gain;
+}
+
 std::vector<double> USRPDevice::GetAvailableSamplingRates() const
 {
 	std::vector<double> rates_mhz;
 	const double master_clock_rate = usrp_device->get_master_clock_rate();
 	const int max_decimation = static_cast<int>(master_clock_rate / 1e6);
 
+	std::vector<int> decimation_vector = {1, 2, 3, 4, 5, 10, 20, 40, 60, 200};
+
 	rates_mhz.reserve(max_decimation);
-	for (int decimation = 1; decimation <= max_decimation; ++decimation)
+	/*for (int decimation = 1; decimation <= max_decimation; ++decimation)
 	{
 		if ((decimation > 256 && decimation % 4 != 0) || (decimation > 128 && decimation % 2 != 0))
 		{
 			continue;
 		}
-
 		rates_mhz.push_back((master_clock_rate / decimation) / 1e6);
+	}*/
+
+	for (int decimation = 1; decimation <= decimation_vector.size(); ++decimation)
+	{
+		rates_mhz.push_back((master_clock_rate / decimation_vector[decimation - 1]) / 1e6);
 	}
 
 	std::sort(rates_mhz.begin(), rates_mhz.end());

@@ -77,20 +77,24 @@ void Application::ShowUSRPInterface()
         else
         {
             ImGui::Text("USRP device connected");
+
+
             // Изменяем центральную частоту
             ImGui::SliderScalar("Frequency, MHz", ImGuiDataType_Double, &current_frequency, &frequency_min, &frequency_max, "%.2f");
-            //ImGui::InputDouble("USRP Frequency, MHz", &current_frequency);
-            current_frequency = (current_frequency < frequency_min) ? frequency_min :
-                (current_frequency > frequency_max) ? frequency_max : current_frequency;
-            usrp_device->SetFrequency(current_frequency);
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                usrp_device->SetFrequency(current_frequency);
+            }
+            ImGui::Text("Current Frequency: %.2f MHz", usrp_device->GetFrequency());
 
+
+            // Изменяем частоту дискретизации
             if (sampling_rates_mhz.empty())
             {
                 sampling_rates_mhz = usrp_device->GetAvailableSamplingRates();
-                current_sampling_rate = usrp_device->GetSamplingRate() / 1e6;
                 for (int i = 0; i < static_cast<int>(sampling_rates_mhz.size()); ++i)
                 {
-                    if (sampling_rates_mhz[i] >= current_sampling_rate)
+                    if (sampling_rates_mhz[i] >= usrp_device->GetSamplingRate())
                     {
                         selected_sampling_rate_index = i;
                         break;
@@ -112,16 +116,30 @@ void Application::ShowUSRPInterface()
                         if (ImGui::Selectable(item_label, is_selected))
                         {
                             selected_sampling_rate_index = i;
-                            current_sampling_rate = usrp_device->SetSamplingRate(sampling_rates_mhz[i]);
+                            usrp_device->SetSamplingRate(sampling_rates_mhz[i]);
                         }
                         if (is_selected)
                             ImGui::SetItemDefaultFocus();
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::Text("Current sampling rate: %.3f MHz", current_sampling_rate);
+                ImGui::Text("Current sampling rate: %.3f MHz", usrp_device->GetSamplingRate());
             }
 
+            ImGui::SliderScalar(
+                "RX gain",
+                ImGuiDataType_Double,
+                &current_rx_gain,
+                &rx_gain_min,
+                &rx_gain_max,
+                "%.1f dB"
+            );
+
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                usrp_device->SetRXGain(current_rx_gain);
+            }
+            ImGui::Text("Current RX gain: %.1f dB", usrp_device->GetRXGain());
         }
 
         ImGui::End();
@@ -139,8 +157,8 @@ void Application::ShowUSRPInterface()
             }
             else
             {
-                auto freq = usrp_device->GetCenterFrequency();
-                auto fd = usrp_device->GetSamplingRate();
+                auto freq = usrp_device->GetFrequency() * 1e6;
+                auto fd = usrp_device->GetSamplingRate() * 1e6;
                 ImGui::Text("Im streaming");
                 //std::cout << (std::to_string(local_data[0]).c_str()) << "\n";
                 FFTPlot(local_data, freq, fd);

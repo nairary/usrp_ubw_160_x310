@@ -32,10 +32,13 @@ private:
 	GLFWwindow* window = nullptr;
 	ImGuiIO io;
 
-	double current_frequency = 0.0;
+	double current_frequency = 10.0;
 	double current_sampling_rate = 10.0;
+	double current_rx_gain = 30.0;
 	int selected_sampling_rate_index = 0;
 	std::vector<double> sampling_rates_mhz;
 	const double frequency_max = 6000;
 	const double frequency_min = 10;
+	const double rx_gain_max = 31.5;
+	const double rx_gain_min = 0.0;
 };
