@@ -1,6 +1,6 @@
 #include "PlotFunctions.h"
 
-void FFTPlot(std::vector<float>& y, const double center_frequency, const double fd)
+void FFTPlot(const std::vector<float>& y, const double center_frequency, const double fd)
 {
     double df = fd/y.size();
     double freq_start = center_frequency - fd / 2;
@@ -9,7 +9,7 @@ void FFTPlot(std::vector<float>& y, const double center_frequency, const double 
     {
         x[i] = static_cast<float>(freq_start + (double)i*df)/1e6;
     }
-    
+
     static ImPlotAxisFlags xflags = ImPlotAxisFlags_AutoFit;
     static ImPlotAxisFlags yflags = ImPlotAxisFlags_None;
 

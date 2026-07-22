@@ -5,6 +5,8 @@ Application::Application(const int width, const int height)
 {
     temp_data.resize(FFT_SIZE);
     local_data.resize(FFT_SIZE);
+    averaged_data.resize(FFT_SIZE);
+    average_sum.resize(FFT_SIZE);
     if (!glfwInit())
         throw std::runtime_error("GLFW runtime error");
 
@@ -113,6 +115,7 @@ void Application::ShowUSRPInterface()
                         {
                             selected_sampling_rate_index = i;
                             current_sampling_rate = usrp_device->SetSamplingRate(sampling_rates_mhz[i]);
+                            ResetSpectrumAveraging();
                         }
                         if (is_selected)
                             ImGui::SetItemDefaultFocus();
@@ -143,7 +146,13 @@ void Application::ShowUSRPInterface()
                 auto fd = usrp_device->GetSamplingRate();
                 ImGui::Text("Im streaming");
                 //std::cout << (std::to_string(local_data[0]).c_str()) << "\n";
-                FFTPlot(local_data, freq, fd);
+                ImGui::Checkbox("Average spectrum over time", &average_spectrum_enabled);
+                ImGui::BeginDisabled(!average_spectrum_enabled);
+                if (ImGui::SliderFloat("Averaging time, s", &average_time_seconds, 0.1f, 30.0f, "%.1f"))
+                    ResetSpectrumAveraging();
+                ImGui::EndDisabled();
+                UpdateSpectrumAveraging(local_data, fd);
+                FFTPlot(GetSpectrumForPlot(), freq, fd);
                 if (ImGui::Button("Stop stream"))
                 {
                     usrp_device->StopStream();
@@ -171,9 +180,58 @@ void Application::GetAndRenderStreamingData()
         if (is_data_ready.load())
         {
             local_data = temp_data;
+            data_sequence.fetch_add(1, std::memory_order_relaxed);
             is_data_ready.store(false);
         }
     }
+}
+
+void Application::ResetSpectrumAveraging()
+{
+    average_history.clear();
+    std::fill(average_sum.begin(), average_sum.end(), 0.0f);
+    std::fill(averaged_data.begin(), averaged_data.end(), 0.0f);
+    last_averaged_sequence = data_sequence.load(std::memory_order_relaxed);
+}
+
+void Application::UpdateSpectrumAveraging(const std::vector<float>& spectrum, double sampling_rate_hz)
+{
+    const uint64_t sequence = data_sequence.load(std::memory_order_relaxed);
+    if (!average_spectrum_enabled || sequence == last_averaged_sequence || spectrum.empty())
+        return;
+
+    if (average_sum.size() != spectrum.size())
+    {
+        average_sum.assign(spectrum.size(), 0.0f);
+        averaged_data.assign(spectrum.size(), 0.0f);
+        average_history.clear();
+    }
+
+    const double block_duration_seconds = static_cast<double>(spectrum.size()) / sampling_rate_hz;
+    const size_t max_blocks = std::max<size_t>(1, static_cast<size_t>(std::ceil(average_time_seconds / block_duration_seconds)));
+
+    average_history.push_back(spectrum);
+    for (size_t i = 0; i < spectrum.size(); ++i)
+        average_sum[i] += spectrum[i];
+
+    while (average_history.size() > max_blocks)
+    {
+        const auto& oldest = average_history.front();
+        for (size_t i = 0; i < oldest.size(); ++i)
+            average_sum[i] -= oldest[i];
+        average_history.pop_front();
+    }
+
+    const float scale = 1.0f / static_cast<float>(average_history.size());
+    for (size_t i = 0; i < average_sum.size(); ++i)
+        averaged_data[i] = average_sum[i] * scale;
+
+    last_averaged_sequence = sequence;
+}
+
+const std::vector<float>& Application::GetSpectrumForPlot() const
+{
+    return average_spectrum_enabled && !average_history.empty() ? averaged_data : local_data;
 }
 
 void Application::Run()
