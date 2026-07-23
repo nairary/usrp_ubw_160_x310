@@ -169,6 +169,18 @@ void Application::ShowUSRPInterface()
                 if (ImGui::SliderFloat("Averaging time, s", &average_time_seconds, 0.1f, 30.0f, "%.1f"))
                     ResetSpectrumAveraging();
                 ImGui::EndDisabled();
+
+                ImGui::SeparatorText("IQ recording");
+                ImGui::SliderFloat("Recording time, s", &recording_time_seconds, 0.1f, 10.0f, "%.1f");
+                ImGui::BeginDisabled(usrp_device->IsRecording());
+                if (ImGui::Button("Record raw IQ"))
+                    usrp_device->StartRecording(recording_time_seconds);
+                ImGui::EndDisabled();
+                if (usrp_device->IsRecording())
+                    ImGui::Text("Recording raw IQ...");
+                else if (!usrp_device->GetLastRecordingBasePath().empty())
+                    ImGui::Text("Last recording: %s", usrp_device->GetLastRecordingBasePath().string().c_str());
+
                 UpdateSpectrumAveraging(local_data, fd);
                 FFTPlot(GetSpectrumForPlot(), freq, fd);
                 if (ImGui::Button("Stop stream"))

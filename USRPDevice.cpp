@@ -1,5 +1,8 @@
 #include "USRPDevice.h"
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 //#include "Utils.h"
 
 USRPDevice::USRPDevice()
@@ -32,6 +35,8 @@ USRPDevice::USRPDevice()
 
 USRPDevice::~USRPDevice()
 {
+	if (recording_running.load())
+		FinishRecording();
 	if (stream_running.load())
 		StopStream();
 }
@@ -46,9 +51,75 @@ void USRPDevice::StartStream()
 
 void USRPDevice::StopStream()
 {
+	if (recording_running.load())
+		FinishRecording();
 	uhd::stream_cmd_t stop_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
 	rx_stream->issue_stream_cmd(stop_cmd);
 	stream_running.store(false);
+}
+
+void USRPDevice::StartRecording(double duration_seconds)
+{
+	std::lock_guard lock(recording_mutex);
+	if (!stream_running.load() || recording_running.load())
+		return;
+
+	const auto now = std::chrono::system_clock::now();
+	const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+	std::tm timestamp{};
+#if defined(_WIN32)
+	localtime_s(&timestamp, &now_time);
+#else
+	localtime_r(&now_time, &timestamp);
+#endif
+	std::ostringstream name;
+	name << "iq_recording_" << std::put_time(&timestamp, "%Y%m%d_%H%M%S");
+
+	const auto recording_dir = std::filesystem::current_path() / "recordings";
+	std::filesystem::create_directories(recording_dir);
+	last_recording_base_path = recording_dir / name.str();
+
+	recording_file.open(last_recording_base_path.string() + ".bin", std::ios::binary | std::ios::trunc);
+	if (!recording_file.is_open())
+	{
+		std::cerr << "[USRP] Could not open IQ recording file\n";
+		return;
+	}
+
+	recording_samples_remaining = static_cast<size_t>(std::max(1.0, std::round(duration_seconds * sample_rate)));
+	std::ofstream metadata_file(last_recording_base_path.string() + ".txt", std::ios::trunc);
+	metadata_file << "Central frequency, Hz: " << center_freq << "\n"
+		<< "Sampling rate, Hz: " << sample_rate << "\n"
+		<< "RX gain, dB: " << rx_gain << "\n"
+		<< "Duration, s: " << duration_seconds << "\n"
+		<< "IQ format: interleaved signed 16-bit I/Q (sc16)\n";
+	recording_running.store(true);
+}
+
+void USRPDevice::WriteRecordingChunk(const std::complex<int16_t>* samples, size_t sample_count)
+{
+	std::lock_guard lock(recording_mutex);
+	if (!recording_running.load() || !recording_file.is_open())
+		return;
+
+	const size_t samples_to_write = std::min(sample_count, recording_samples_remaining);
+	recording_file.write(reinterpret_cast<const char*>(samples), static_cast<std::streamsize>(samples_to_write * sizeof(std::complex<int16_t>)));
+	recording_samples_remaining -= samples_to_write;
+	if (recording_samples_remaining == 0)
+	{
+		if (recording_file.is_open())
+			recording_file.close();
+		recording_running.store(false);
+	}
+}
+
+void USRPDevice::FinishRecording()
+{
+	std::lock_guard lock(recording_mutex);
+	if (recording_file.is_open())
+		recording_file.close();
+	recording_samples_remaining = 0;
+	recording_running.store(false);
 }
 
 void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex)
@@ -70,6 +141,7 @@ void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& 
 		if (num_rx_samps != 32768) {
 			continue; // Получили неполный пакет — пропускаем во избежание артефактов FFT
 		}
+		WriteRecordingChunk(usrpBuffer.data(), num_rx_samps);
 		fft_processor.processBlock(usrpBuffer.data(), 32768);
 		{
 			std::lock_guard lk{ data_mutex };
