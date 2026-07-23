@@ -43,6 +43,7 @@ private:
 	uint64_t last_averaged_sequence = 0;
 	bool average_spectrum_enabled = false;
 	float average_time_seconds = 1.0f;
+	float recording_time_seconds = 1.0f;
 	GLFWwindow* window = nullptr;
 	ImGuiIO io;
 

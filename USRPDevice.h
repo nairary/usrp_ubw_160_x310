@@ -9,9 +9,13 @@
 #include <chrono>
 #include <complex>
 #include <cstdlib>
+#include <ctime>
 #include <iostream>
+#include <mutex>
 #include <thread>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include "ReaTimeFFT.h"
@@ -27,6 +31,9 @@
 		void StartStream();
 		void StopStream();
 		bool IsStreaming() const { return stream_running.load(); }
+		bool IsRecording() const { return recording_running.load(); }
+		void StartRecording(double duration_seconds);
+		const std::filesystem::path& GetLastRecordingBasePath() const { return last_recording_base_path; }
 		void GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex);
 		// Входная частота в МГц. Возвращает реальную частоту в МГц
 		double SetFrequency(const double frequency);
@@ -51,6 +58,13 @@
 		double rx_gain = 30.0;
 		double sample_rate = 10e6;
 		double center_freq = 10.0e6;
+		void WriteRecordingChunk(const std::complex<int16_t>* samples, size_t sample_count);
+		void FinishRecording();
 		std::atomic_bool stream_running = false;
+		std::atomic_bool recording_running = false;
+		std::mutex recording_mutex;
+		std::ofstream recording_file;
+		size_t recording_samples_remaining = 0;
+		std::filesystem::path last_recording_base_path;
 		RealTimeFFT fft_processor;
 	};
