@@ -31,22 +31,26 @@
 		// Входная частота в МГц. Возвращает реальную частоту в МГц
 		double SetFrequency(const double frequency);
 
-		// Получить центральную частоту в Гц
-		double GetCenterFrequency() const { return usrp_device->get_rx_freq(); };
+		// Получить центральную частоту в МГц
+		double GetFrequency() const { return usrp_device->get_rx_freq() / 1e6; };
 		// Установить частоту дискретизации в МГц. Возвращает реальную частоту в МГц
 		double SetSamplingRate(const double rate);
-		// Получить частоту дискретизации в Гц
-		double GetSamplingRate() const { return usrp_device->get_rx_rate(); };
+		// Получить частоту дискретизации в МГц
+		double GetSamplingRate() const { return usrp_device->get_rx_rate() / 1e6; };
 		// Получить список частот дискретизации в МГц, вычисленный из master clock rate
 		std::vector<double> GetAvailableSamplingRates() const;
+		// Установить усиление на приемнике в дБ.
+		double SetRXGain(const double gain);
+		// Получить усиление на приемнике в дБ.
+		double GetRXGain() const { return usrp_device->get_rx_gain(); };
 	private:
 		std::vector<std::complex<int16_t>> usrpBuffer;
 		uhd::rx_streamer::sptr rx_stream;
 		uhd::usrp::multi_usrp::sptr usrp_device;
 		uhd::rx_metadata_t md;
+		double rx_gain = 30.0;
 		double sample_rate = 10e6;
-		double center_freq = 1.001e9;
-		double gain = 30.0;
+		double center_freq = 10.0e6;
 		std::atomic_bool stream_running = false;
 		RealTimeFFT fft_processor;
 	};
