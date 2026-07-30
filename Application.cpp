@@ -182,7 +182,9 @@ void Application::ShowUSRPInterface()
                     ImGui::Text("Last recording: %s", usrp_device->GetLastRecordingBasePath().string().c_str());
 
                 UpdateSpectrumAveraging(local_data, fd);
-                FFTPlot(GetSpectrumForPlot(), freq, fd);
+                ImGui::Begin("Spectrum Plot");
+                    FFTPlot(GetSpectrumForPlot(), freq, fd);
+                ImGui::End();
                 if (ImGui::Button("Stop stream"))
                 {
                     usrp_device->StopStream();
@@ -196,8 +198,9 @@ void Application::ShowUSRPInterface()
 
 void Application::CreateUSRPDevice()
 {
-    usrp_device = std::make_unique<USRPDevice>();
-    usrp_device_exists.store(true);
+    bool result;
+    usrp_device = std::make_unique<USRPDevice>(result);
+    usrp_device_exists.store(result);
     return;
 }
 

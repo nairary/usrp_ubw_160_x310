@@ -5,7 +5,7 @@
 #include <sstream>
 //#include "Utils.h"
 
-USRPDevice::USRPDevice()
+USRPDevice::USRPDevice(bool& success)
 	: fft_processor(RealTimeFFT(32768))
 {
 	uhd::set_thread_priority_safe(1.0f, true);
@@ -18,6 +18,7 @@ USRPDevice::USRPDevice()
 	catch (const std::exception& e)
 	{
 		std::cerr << "[USRP] Error in device initialization: " << e.what() << "\n";
+		success = false;
 		return;
 	}
 
@@ -30,7 +31,7 @@ USRPDevice::USRPDevice()
 	// Устанавливаем тип данных std::coplex<int16_t>
 	uhd::stream_args_t stream_args("sc16", "sc16");
 	rx_stream = usrp_device->get_rx_stream(stream_args);
-	usrpBuffer.resize(32768);
+	success = true;
 }
 
 USRPDevice::~USRPDevice()

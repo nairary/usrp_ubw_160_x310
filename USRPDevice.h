@@ -26,7 +26,7 @@
 	class USRPDevice
 	{
 	public:
-		USRPDevice();
+		USRPDevice(bool& success);
 		~USRPDevice();
 		void StartStream();
 		void StopStream();
