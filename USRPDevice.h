@@ -12,6 +12,7 @@
 #include <ctime>
 #include <iostream>
 #include <mutex>
+#include <memory>
 #include <thread>
 #include <filesystem>
 #include <fstream>
@@ -50,6 +51,9 @@
 		double SetRXGain(const double gain);
 		// Получить усиление на приемнике в дБ.
 		double GetRXGain() const { return usrp_device->get_rx_gain(); };
+		// Изменить число точек FFT можно только при остановленном потоке.
+		void SetFFTSize(size_t fft_size);
+		size_t GetFFTSize() const { return fft_processor->getFFTSize(); }
 	private:
 		std::vector<std::complex<int16_t>> usrpBuffer;
 		uhd::rx_streamer::sptr rx_stream;
@@ -66,5 +70,5 @@
 		std::ofstream recording_file;
 		size_t recording_samples_remaining = 0;
 		std::filesystem::path last_recording_base_path;
-		RealTimeFFT fft_processor;
+		std::unique_ptr<RealTimeFFT> fft_processor;
 	};

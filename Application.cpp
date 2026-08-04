@@ -3,10 +3,10 @@
 Application::Application(const int width, const int height)
     : io(ImGuiIO{})
 {
-    temp_data.resize(FFT_SIZE);
-    local_data.resize(FFT_SIZE);
-    averaged_data.resize(FFT_SIZE);
-    average_sum.resize(FFT_SIZE);
+    temp_data.resize(DEFAULT_FFT_SIZE);
+    local_data.resize(DEFAULT_FFT_SIZE);
+    averaged_data.resize(DEFAULT_FFT_SIZE);
+    average_sum.resize(DEFAULT_FFT_SIZE);
     if (!glfwInit())
         throw std::runtime_error("GLFW runtime error");
 
@@ -142,6 +142,38 @@ void Application::ShowUSRPInterface()
                 usrp_device->SetRXGain(current_rx_gain);
             }
             ImGui::Text("Current RX gain: %.1f dB", usrp_device->GetRXGain());
+
+            ImGui::BeginDisabled(usrp_device->IsStreaming());
+            char fft_size_label[32];
+            snprintf(fft_size_label, sizeof(fft_size_label), "2^%d (%zu)", selected_fft_exponent,
+                size_t{1} << selected_fft_exponent);
+            if (ImGui::BeginCombo("FFT points", fft_size_label))
+            {
+                for (int exponent = MIN_FFT_EXPONENT; exponent <= MAX_FFT_EXPONENT; ++exponent)
+                {
+                    const bool is_selected = selected_fft_exponent == exponent;
+                    char item_label[32];
+                    snprintf(item_label, sizeof(item_label), "2^%d (%zu)", exponent, size_t{1} << exponent);
+                    if (ImGui::Selectable(item_label, is_selected))
+                    {
+                        const size_t fft_size = size_t{1} << exponent;
+                        usrp_device->SetFFTSize(fft_size);
+                        selected_fft_exponent = exponent;
+                        std::lock_guard lock(receiver_mutex);
+                        temp_data.assign(fft_size, 0.0f);
+                        local_data.assign(fft_size, 0.0f);
+                        averaged_data.assign(fft_size, 0.0f);
+                        average_sum.assign(fft_size, 0.0f);
+                        ResetSpectrumAveraging();
+                    }
+                    if (is_selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::EndDisabled();
+            if (usrp_device->IsStreaming())
+                ImGui::TextDisabled("Stop the stream to change the FFT size");
 
         }
 
@@ -342,5 +374,4 @@ Application::~Application()
     glfwDestroyWindow(window);
     glfwTerminate();
 }
-
 
