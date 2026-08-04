@@ -3,11 +3,13 @@
 #include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 //#include "Utils.h"
 
 USRPDevice::USRPDevice(bool& success)
-	: fft_processor(RealTimeFFT(32768))
+	: fft_processor(std::make_unique<RealTimeFFT>(DEFAULT_FFT_SIZE))
 {
+	usrpBuffer.resize(DEFAULT_FFT_SIZE);
 	uhd::set_thread_priority_safe(1.0f, true);
 	std::string device_args = "type=x300";
 	std::cout << "[USRP] Serach and connection to USRP X300...\n";
@@ -125,9 +127,10 @@ void USRPDevice::FinishRecording()
 
 void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex)
 {
+	const size_t fft_size = fft_processor->getFFTSize();
 	while (stream_running)
 	{
-		size_t num_rx_samps = rx_stream->recv(&usrpBuffer[0], 32768, md, 1.0);
+		size_t num_rx_samps = rx_stream->recv(usrpBuffer.data(), fft_size, md, 1.0);
 		// Проверка на ошибки связи
 		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) {
 			std::cerr << "[USRP] Таймаут получения данных!" << std::endl;
@@ -139,19 +142,35 @@ void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& 
 			std::cerr << "O" << std::flush;
 			continue;
 		}
-		if (num_rx_samps != 32768) {
+		if (num_rx_samps != fft_size) {
 			continue; // Получили неполный пакет — пропускаем во избежание артефактов FFT
 		}
 		WriteRecordingChunk(usrpBuffer.data(), num_rx_samps);
-		fft_processor.processBlock(usrpBuffer.data(), 32768);
+		fft_processor->processBlock(usrpBuffer.data(), fft_size);
 		{
 			std::lock_guard lk{ data_mutex };
-			output_data = fft_processor.getLatestMagnitudes();
+			output_data = fft_processor->getLatestMagnitudes();
 			is_data_ready.store(true);
 		}
 	}
 
 
+}
+
+void USRPDevice::SetFFTSize(size_t fft_size)
+{
+	if (stream_running.load())
+		return;
+
+	const size_t min_fft_size = size_t{1} << MIN_FFT_EXPONENT;
+	const size_t max_fft_size = size_t{1} << MAX_FFT_EXPONENT;
+	if (fft_size < min_fft_size || fft_size > max_fft_size || (fft_size & (fft_size - 1)) != 0)
+		throw std::invalid_argument("FFT size must be a power of two from 2^11 through 2^16");
+
+	auto new_fft_processor = std::make_unique<RealTimeFFT>(fft_size);
+	std::vector<std::complex<int16_t>> new_usrp_buffer(fft_size);
+	fft_processor = std::move(new_fft_processor);
+	usrpBuffer = std::move(new_usrp_buffer);
 }
 
 double USRPDevice::SetFrequency(const double frequency)
