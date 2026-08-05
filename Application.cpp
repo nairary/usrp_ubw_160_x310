@@ -192,7 +192,6 @@ void Application::ShowUSRPInterface()
             }
             else
             {
-                auto freq = usrp_device->GetFrequency() * 1e6;
                 auto fd = usrp_device->GetSamplingRate() * 1e6;
                 const double max_spectrum_display_width_khz = fd / 2e3;
                 if (spectrum_display_width_khz < 0.0 || spectrum_display_width_khz > max_spectrum_display_width_khz)
