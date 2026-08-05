@@ -194,6 +194,9 @@ void Application::ShowUSRPInterface()
             {
                 auto freq = usrp_device->GetFrequency() * 1e6;
                 auto fd = usrp_device->GetSamplingRate() * 1e6;
+                const double max_spectrum_display_width_khz = fd / 2e3;
+                if (spectrum_display_width_khz < 0.0 || spectrum_display_width_khz > max_spectrum_display_width_khz)
+                    spectrum_display_width_khz = max_spectrum_display_width_khz;
                 ImGui::Text("Im streaming");
                 //std::cout << (std::to_string(local_data[0]).c_str()) << "\n";
                 ImGui::Checkbox("Average spectrum over time", &average_spectrum_enabled);
@@ -215,7 +218,16 @@ void Application::ShowUSRPInterface()
 
                 UpdateSpectrumAveraging(local_data, fd);
                 ImGui::Begin("Spectrum Plot");
-                    FFTPlot(GetSpectrumForPlot(), freq, fd);
+                    const double spectrum_display_width_min_khz = 0.0;
+                    ImGui::SliderScalar(
+                        "Spectrum display half-width, kHz",
+                        ImGuiDataType_Double,
+                        &spectrum_display_width_khz,
+                        &spectrum_display_width_min_khz,
+                        &max_spectrum_display_width_khz,
+                        "%.1f"
+                    );
+                    FFTPlot(GetSpectrumForPlot(), freq, fd, spectrum_display_width_khz);
                 ImGui::End();
                 if (ImGui::Button("Stop stream"))
                 {
