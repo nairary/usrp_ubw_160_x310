@@ -226,7 +226,7 @@ void Application::ShowUSRPInterface()
                         &max_spectrum_display_width_khz,
                         "%.1f"
                     );
-                    FFTPlot(GetSpectrumForPlot(), fd, spectrum_display_width_khz);
+                    FFTPlot(GetSpectrumForPlot(), freq, fd, spectrum_display_width_khz);
                 ImGui::End();
                 if (ImGui::Button("Stop stream"))
                 {
