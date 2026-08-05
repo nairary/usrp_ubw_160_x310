@@ -44,6 +44,7 @@ private:
 	bool average_spectrum_enabled = false;
 	float average_time_seconds = 1.0f;
 	float recording_time_seconds = 1.0f;
+	double spectrum_display_width_khz = -1.0;
 	int selected_fft_exponent = DEFAULT_FFT_EXPONENT;
 	GLFWwindow* window = nullptr;
 	ImGuiIO io;
