@@ -1,3 +1,7 @@
 /build/
 /imgui.ini
 /recordings/
+
+/.vs/
+/CMakeUserPresets.json
+/vcpkg_installed/
