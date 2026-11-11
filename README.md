@@ -4,6 +4,123 @@ C++20, UHD, GLFW/OpenGL, Dear ImGui/ImPlot and single-precision FFTW. Wi-Fi supp
 in this milestone is **L-STF candidate detection only**, at actual RX rate
 20 MS/s (tolerance ±20 Hz). It does not decode OFDM symbols, L-LTF, HT-SIG or MAC.
 
+## Visual Studio 2026: native solution, no CMake
+
+Open **`usrp_ubw_160_x310.sln`** by double-clicking it. This is a hand-maintained
+MSBuild solution/project, not a CMake-generated wrapper. Building this solution
+never invokes CMake, vcpkg, Python or a header-download script. The existing CMake
+workflow below remains an independent alternative.
+
+**Windows/MSVC compilation and F5 launch cannot be verified in this Linux
+environment.** Project XML, configurations and source references were checked;
+these checks do not establish a successful Windows build or hardware operation.
+No reception or Wi-Fi algorithm source is changed by the native project setup.
+
+### Prerequisites and dependencies
+
+Install VS **2026**, **Desktop development with C++**, the **v145 x64/x86 MSVC**
+toolset and a Windows 10/11 SDK. The project selects the latest installed 10.x SDK.
+Both configurations are x64 and use C++20. If using another compatible installed
+toolset, set the MSBuild property `UsrpPlatformToolset` (e.g. `v143` for VS 2022)
+or retarget through Project Properties. Do not select Win32.
+
+Use an installed **x64 UHD 4.x SDK**, and separately installed x64 FFTW and GLFW
+DLL development packages. Supply Boost headers compatible with the UHD public
+headers. Header versions and runtime DLLs belonging to UHD must match that SDK.
+The restored ImGui/ImPlot headers and sources are already in `ext/imgui`.
+OpenGL comes from the Windows SDK/graphics driver. `glad.c` is intentionally not
+compiled: ImGui OpenGL3 already has its own loader.
+
+Set these **user environment variables** to your actual SDK directories in
+Windows Environment Variables, then restart Visual Studio:
+
+| Variable | Default layout expected |
+|---|---|
+| `UHD_ROOT` | `include/uhd`, `lib/uhd.lib`, `bin/uhd.dll` |
+| `BOOST_ROOT` | `boost/version.hpp`, optional `lib` and `bin` |
+| `FFTW_ROOT` | `include/fftw3.h`, `lib/libfftw3f-3.lib`, `bin/libfftw3f-3.dll` |
+| `GLFW_ROOT` | `include/GLFW/glfw3.h`, `lib/glfw3dll.lib`, `bin/glfw3.dll` |
+
+Alternatively, copy `msbuild/Dependencies.local.props.example` to
+`msbuild/Dependencies.local.props` and edit it for your machine. The local file
+is ignored by Git; no machine-specific paths are committed. Roots can be supplied
+as `UsrpUHDRoot`, `UsrpBoostRoot`, `UsrpFFTWRoot`, `UsrpGLFWRoot`. Any derived
+`Usrp*IncludeDir`, `Usrp*LibDir`, `Usrp*BinDir` or library-name property can be
+overridden directly. See `msbuild/Dependencies.props` for all defaults. The local
+file is imported before derived defaults, so changing a root updates its paths.
+
+The example covers common archive layouts: GLFW import libraries/DLLs under
+`lib-vc2022`, Boost headers directly under the Boost root, and FFTW headers/DLLs
+at the archive root. For the official FFTW prebuilt archive, generate its x64
+single-precision import library if it is not supplied, in VS Developer PowerShell:
+
+```powershell
+# Run in the FFTW archive directory containing libfftw3f-3.def:
+lib.exe /machine:x64 /def:libfftw3f-3.def /out:libfftw3f-3.lib
+```
+
+Do not link double-precision `libfftw3-3.lib` in place of `libfftw3f-3.lib`.
+For an SDK using `libuhd.lib` / `libuhd.dll`, override `UsrpUHDLibrary` and the
+UHD filename in `UsrpRequiredDlls`, as shown in the example.
+
+The current app includes Boost format/program_options/thread headers but does not
+call out-of-line Boost library APIs. The project defines `BOOST_ALL_NO_LIB` to
+avoid accidental compiler/version/debug-tag autolinking. `UsrpBoostLibDir` and
+`UsrpBoostLibraries` remain available for explicit matching Boost libraries if
+needed by a different SDK. UHD's own Boost runtime DLLs are still required; use
+those shipped with that UHD build, not arbitrary substitutes.
+
+### Build and F5
+
+1. Double-click `usrp_ubw_160_x310.sln` and select **x64 / Release**.
+2. If necessary, right-click `usrp_ubw_160_x310` and **Set as Startup Project**.
+3. **Build Solution**. Missing headers/import libraries report the exact property
+   to configure. No source files or library paths need adding to the project.
+4. Press **F5**. The debugger working directory is the executable output directory:
+   `build/msbuild/x64/Release` (or `Debug`). Recordings and ImGui settings stay there.
+
+Equivalent commands in VS 2026 Developer PowerShell:
+
+```powershell
+msbuild usrp_ubw_160_x310.sln /m /p:Configuration=Release /p:Platform=x64
+msbuild usrp_ubw_160_x310.sln /m /p:Configuration=Debug /p:Platform=x64
+```
+
+**Debug intentionally uses `/MD`, `_ITERATOR_DEBUG_LEVEL=0`, debug symbols and
+no optimization** so its C++ ABI matches a prebuilt Release UHD SDK. It is a
+configuration for debugging application code against release dependencies, not
+an `/MDd` SDK configuration. Release uses `/MD`, optimization and symbols too.
+Do not enable checked STL or switch to `/MDd` unless all C++ dependencies are
+rebuilt and configured consistently. The Console subsystem keeps UHD diagnostics
+visible. No MFC/ATL dependency or additional `main()` from tools/tests is included.
+
+### DLL staging and hardware
+
+After every Build, native MSBuild tasks copy `*.dll` from the configured UHD,
+Boost, FFTW and GLFW bin directories into the output directory. Add directories
+containing other DLLs shipped with your UHD SDK using `UsrpExtraRuntimeDirs`
+(semicolon-separated). Only the named directories are searched, not recursively.
+The project checks for `UsrpRequiredDlls` after copying. Conflicting duplicate DLL
+filenames fail staging instead of silently choosing a version. Keep a single
+compatible provider for each DLL name. After changing dependency versions, remove
+old output DLLs / delete the configuration's output directory before rebuilding.
+
+This is directory-based staging, not an automatic transitive import scanner:
+ensure each SDK runtime directory contains its complete matching dependency set.
+If F5 reports a further missing DLL, inspect the executable/UHD DLL with
+`dumpbin /dependents` in the VS Developer shell and add that SDK's runtime directory.
+Install the Microsoft VC++ 2015–2026 **x64** runtime supported by the toolset on
+machines without Visual Studio. Do not copy Windows system DLLs or download
+individual DLLs from third-party sites. Error `0xc000007b` usually warrants checking
+for a mixed x86/x64 DLL set. Do not launch a copied `.exe` without its runtime DLLs.
+
+Set `UHD_IMAGES_DIR` if the installed UHD cannot find the matching FPGA images.
+Use the installed UHD image downloader and utilities; no image flashing or network
+configuration is performed by this project. Verify X310 NIC/subnet/firewall and
+run `uhd_find_devices --args="type=x300"` / `uhd_usrp_probe --args="type=x300"`
+from the UHD SDK before application testing. Then use **Turn on receiver** in the
+app. Native solution validation does not establish hardware readiness.
+
 ## Visual Studio 2022 / Windows x64 (CMake)
 
 **Windows/MSVC build and DLL staging have not been tested in the current Linux
