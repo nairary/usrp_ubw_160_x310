@@ -42,6 +42,8 @@ private:
 	std::atomic_uint64_t data_sequence = 0;
 	uint64_t last_averaged_sequence = 0;
 	bool average_spectrum_enabled = false;
+	bool enable_marker = false;
+	bool enable_low_frequency_spectrum = false;
 	float average_time_seconds = 1.0f;
 	float recording_time_seconds = 1.0f;
 	double spectrum_display_width_khz = -1.0;
@@ -49,7 +51,7 @@ private:
 	GLFWwindow* window = nullptr;
 	ImGuiIO io;
 
-	double current_frequency = 10.0;
+	double current_frequency = 1000.0;
 	double current_sampling_rate = 10.0;
 	double current_rx_gain = 30.0;
 	int selected_sampling_rate_index = 0;

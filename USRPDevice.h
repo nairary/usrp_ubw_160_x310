@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "ReaTimeFFT.h"
+#include "WiFiDemodulator.h"
 
 //#include "spectrumAnalyzer.h"
 //#include "Console.h"
@@ -54,6 +55,7 @@
 		// Изменить число точек FFT можно только при остановленном потоке.
 		void SetFFTSize(size_t fft_size);
 		size_t GetFFTSize() const { return fft_processor->getFFTSize(); }
+		void DemodulateWiFi();
 	private:
 		std::vector<std::complex<int16_t>> usrpBuffer;
 		uhd::rx_streamer::sptr rx_stream;
@@ -61,7 +63,7 @@
 		uhd::rx_metadata_t md;
 		double rx_gain = 30.0;
 		double sample_rate = 10e6;
-		double center_freq = 10.0e6;
+		double center_freq = 1000.0e6;
 		void WriteRecordingChunk(const std::complex<int16_t>* samples, size_t sample_count);
 		void FinishRecording();
 		std::atomic_bool stream_running = false;

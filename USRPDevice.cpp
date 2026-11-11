@@ -173,6 +173,34 @@ void USRPDevice::SetFFTSize(size_t fft_size)
 	usrpBuffer = std::move(new_usrp_buffer);
 }
 
+void USRPDevice::DemodulateWiFi()
+{
+	if (stream_running.load())
+		StopStream();
+	usrp_device->set_rx_rate(20e6);
+	usrp_device->set_rx_freq(uhd::tune_request_t(2437e6));
+	usrp_device->set_rx_gain(31.0);
+
+	uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+	stream_cmd.stream_now = true;
+	rx_stream->issue_stream_cmd(stream_cmd);
+
+	std::vector<std::complex<int16_t>> rx_buffer(10000);
+	uhd::rx_metadata_t md;
+
+	std::cout << "Reception in sc16 (int16_t) format started..." << std::endl;
+
+	while (true) {
+		// Метод recv автоматически заполнит буфер целыми числами int16_t
+		size_t num_rx_samps = rx_stream->recv(rx_buffer.data(), rx_buffer.size(), md, 3.0);
+
+		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) break;
+		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) continue;
+
+		process_phy_demodulation(rx_buffer);
+	}
+}
+
 double USRPDevice::SetFrequency(const double frequency)
 {
 	usrp_device->set_rx_freq(frequency * 1e6);
@@ -200,7 +228,7 @@ std::vector<double> USRPDevice::GetAvailableSamplingRates() const
 	const double master_clock_rate = usrp_device->get_master_clock_rate();
 	const int max_decimation = static_cast<int>(master_clock_rate / 1e6);
 
-	std::vector<int> decimation_vector = {1, 2, 3, 4, 5, 10, 20, 40, 60, 200};
+	std::vector<int> decimation_vector = {1, 2, 3, 4, 5, 10, 20, 40, 60, 200, 1024};
 
 	rates_mhz.reserve(max_decimation);
 	/*for (int decimation = 1; decimation <= max_decimation; ++decimation)

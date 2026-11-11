@@ -15,7 +15,7 @@ Application::Application(const int width, const int height)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     // Create window with graphics context
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-    window = glfwCreateWindow((int)(width * main_scale), (int)(height * main_scale), "Dear ImGui GLFW+OpenGL3 example", nullptr, nullptr);
+    window = glfwCreateWindow((int)(width * main_scale), (int)(height * main_scale), "Vorot", nullptr, nullptr);
     if (window == nullptr)
         throw std::runtime_error("Creating window error");
     glfwMakeContextCurrent(window);
@@ -59,13 +59,13 @@ Application::Application(const int width, const int height)
 
 void Application::ShowPlot()
 {
-    bool show_demo_window = true;
+    bool show_demo_window = false;
     ImPlot::ShowDemoWindow(&show_demo_window);
 }
 
 void Application::ShowUSRPInterface()
 {
-    ImGui::Begin("USRP interface");
+    ImGui::Begin("Spectrum Analysis");
     {
         ImGui::Begin("Receiver Parameters");
         if (!usrp_device_exists.load())
@@ -85,6 +85,7 @@ void Application::ShowUSRPInterface()
             if (ImGui::IsItemDeactivatedAfterEdit())
             {
                 usrp_device->SetFrequency(current_frequency);
+                ResetSpectrumAveraging();
             }
             ImGui::Text("Current Frequency: %.2f MHz", usrp_device->GetFrequency());
 
@@ -189,15 +190,22 @@ void Application::ShowUSRPInterface()
                     usrp_device->StartStream();
                     app_threads.push_back(std::jthread{ &Application::GetAndRenderStreamingData, this });
                 }
+
+                if (ImGui::Button("Start WiFi Demod"))
+                {
+                    usrp_device->DemodulateWiFi();
+                }
             }
             else
             {
+                auto freq = usrp_device->GetFrequency() * 1e6;
                 auto fd = usrp_device->GetSamplingRate() * 1e6;
                 const double max_spectrum_display_width_khz = fd / 2e3;
                 if (spectrum_display_width_khz < 0.0 || spectrum_display_width_khz > max_spectrum_display_width_khz)
                     spectrum_display_width_khz = max_spectrum_display_width_khz;
                 ImGui::Text("Im streaming");
                 //std::cout << (std::to_string(local_data[0]).c_str()) << "\n";
+                ImGui::Checkbox("Marker To Peak", &enable_marker);
                 ImGui::Checkbox("Average spectrum over time", &average_spectrum_enabled);
                 ImGui::BeginDisabled(!average_spectrum_enabled);
                 if (ImGui::SliderFloat("Averaging time, s", &average_time_seconds, 0.1f, 30.0f, "%.1f"))
@@ -214,25 +222,31 @@ void Application::ShowUSRPInterface()
                     ImGui::Text("Recording raw IQ...");
                 else if (!usrp_device->GetLastRecordingBasePath().empty())
                     ImGui::Text("Last recording: %s", usrp_device->GetLastRecordingBasePath().string().c_str());
-
                 UpdateSpectrumAveraging(local_data, fd);
+
+                ImGui::Checkbox("Low Frequency Spectrum", &enable_low_frequency_spectrum);
+                // Отрисовка спектра
                 ImGui::Begin("Spectrum Plot");
-                    const double spectrum_display_width_min_khz = 0.0;
-                    ImGui::SliderScalar(
-                        "Spectrum display half-width, kHz",
-                        ImGuiDataType_Double,
-                        &spectrum_display_width_khz,
-                        &spectrum_display_width_min_khz,
-                        &max_spectrum_display_width_khz,
-                        "%.1f"
-                    );
-                    FFTPlot(GetSpectrumForPlot(), freq, fd, spectrum_display_width_khz);
+                    //const double spectrum_display_width_min_khz = 0.0;
+                    //ImGui::SliderScalar(
+                    //    "Spectrum display half-width, kHz",
+                    //    ImGuiDataType_Double,
+                    //    &spectrum_display_width_khz,
+                    //    &spectrum_display_width_min_khz,
+                    //    &max_spectrum_display_width_khz,
+                    //    "%.1f"
+                    //);
+                    FFTPlot(GetSpectrumForPlot(), freq, fd, enable_low_frequency_spectrum, current_rx_gain, enable_marker);
                 ImGui::End();
+
                 if (ImGui::Button("Stop stream"))
                 {
                     usrp_device->StopStream();
                     app_threads.pop_back();
                 }
+
+
+
             }
         }
     }
@@ -313,8 +327,8 @@ const std::vector<float>& Application::GetSpectrumForPlot() const
 void Application::Run()
 {
     bool docking_interface = true;
-    bool show_demo_window = true;
-    bool show_another_window = true;
+    bool show_demo_window = false;
+    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     ImGuiIO& current_io = ImGui::GetIO();
     current_io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
