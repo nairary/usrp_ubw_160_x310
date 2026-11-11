@@ -1,4 +1,5 @@
 #include "USRPDevice.h"
+#include "IqAccumulator.h"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -27,6 +28,7 @@ USRPDevice::USRPDevice(bool& success)
 	usrp_device->set_rx_rate(sample_rate);
 	usrp_device->set_rx_freq(center_freq);
 	usrp_device->set_rx_gain(rx_gain);
+	sample_rate = usrp_device->get_rx_rate();
 
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -38,14 +40,14 @@ USRPDevice::USRPDevice(bool& success)
 
 USRPDevice::~USRPDevice()
 {
-	if (recording_running.load())
-		FinishRecording();
-	if (stream_running.load())
-		StopStream();
+    if (rx_stream) { try { StopStream(); } catch (...) {} }
+    FinishRecording();
 }
 
 void USRPDevice::StartStream()
 {
+    ++stream_segment;
+    { std::lock_guard lock(error_mutex); stream_error.clear(); }
 	uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
 	stream_cmd.stream_now = true;
 	rx_stream->issue_stream_cmd(stream_cmd);
@@ -54,11 +56,10 @@ void USRPDevice::StartStream()
 
 void USRPDevice::StopStream()
 {
-	if (recording_running.load())
-		FinishRecording();
-	uhd::stream_cmd_t stop_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
-	rx_stream->issue_stream_cmd(stop_cmd);
-	stream_running.store(false);
+    stream_running.store(false);
+    uhd::stream_cmd_t stop_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
+    rx_stream->issue_stream_cmd(stop_cmd);
+    // Application joins GetUSRPData before reconfiguration/destruction.
 }
 
 void USRPDevice::StartRecording(double duration_seconds)
@@ -107,6 +108,10 @@ void USRPDevice::WriteRecordingChunk(const std::complex<int16_t>* samples, size_
 
 	const size_t samples_to_write = std::min(sample_count, recording_samples_remaining);
 	recording_file.write(reinterpret_cast<const char*>(samples), static_cast<std::streamsize>(samples_to_write * sizeof(std::complex<int16_t>)));
+    if (!recording_file) {
+        recording_file.close(); recording_running.store(false);
+        throw std::runtime_error("IQ recording write failed (disk full or I/O error)");
+    }
 	recording_samples_remaining -= samples_to_write;
 	if (recording_samples_remaining == 0)
 	{
@@ -127,34 +132,73 @@ void USRPDevice::FinishRecording()
 
 void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex)
 {
-	const size_t fft_size = fft_processor->getFFTSize();
-	while (stream_running)
-	{
-		size_t num_rx_samps = rx_stream->recv(usrpBuffer.data(), fft_size, md, 1.0);
-		// Проверка на ошибки связи
-		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) {
-			std::cerr << "[USRP] Таймаут получения данных!" << std::endl;
-			continue;
-		}
-		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) {
-			// Буфер переполнен (процессор или сеть не успевают за USRP).
-			// Печатаем "O" (стандартное поведение UHD) и продолжаем.
-			std::cerr << "O" << std::flush;
-			continue;
-		}
-		if (num_rx_samps != fft_size) {
-			continue; // Получили неполный пакет — пропускаем во избежание артефактов FFT
-		}
-		WriteRecordingChunk(usrpBuffer.data(), num_rx_samps);
-		fft_processor->processBlock(usrpBuffer.data(), fft_size);
-		{
-			std::lock_guard lk{ data_mutex };
-			output_data = fft_processor->getLatestMagnitudes();
-			is_data_ready.store(true);
-		}
-	}
-
-
+    // Only this function calls recv. Its fast path copies IQ into bounded queues;
+    // FFT and file writes run in the processing worker, Wi-Fi in its own worker.
+    IqQueue processing(64);
+    const size_t fft_size = fft_processor->getFFTSize();
+    std::jthread processor([&] {
+        try {
+            IqAccumulator fft_pending(fft_size);
+            uint64_t segment = 0, next = 0;
+            IqBlock block;
+            while (processing.pop(block)) {
+                if (block.discontinuity || segment != block.segment || next != block.first) {
+                    fft_pending.reset();
+                    // A recording cannot silently stitch across an unknown gap.
+                    if (segment != 0 && recording_running.load()) {
+                        FinishRecording();
+                        std::lock_guard lock(error_mutex);
+                        stream_error="Recording stopped at an IQ discontinuity";
+                    }
+                }
+                segment = block.segment; next = block.first + block.samples.size();
+                WriteRecordingChunk(block.samples.data(), block.samples.size());
+                fft_pending.process(block.samples,[&](auto fft_block) {
+                    fft_processor->processBlock(fft_block.data(),fft_block.size());
+                    std::lock_guard lock(data_mutex);
+                    output_data = fft_processor->getLatestMagnitudes();
+                    is_data_ready.store(true);
+                });
+            }
+        } catch (const std::exception& e) {
+            { std::lock_guard lock(error_mutex); stream_error=e.what(); }
+            stream_running.store(false);
+        }
+    });
+    uint64_t first = 0;
+    uint64_t last_drops=0, last_overflows=0;
+    bool gap = true;
+    try {
+        while (stream_running.load()) {
+            const size_t count = rx_stream->recv(usrpBuffer.data(),usrpBuffer.size(),md,0.1);
+            const bool overflow = md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW;
+            const bool error = md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE &&
+                               md.error_code != uhd::rx_metadata_t::ERROR_CODE_TIMEOUT;
+            if (overflow) ++rx_overflows;
+            if (md.out_of_sequence) ++rx_sequence_errors;
+            if (error && !overflow) ++rx_errors;
+            if (error || md.out_of_sequence) {
+                ++stream_segment; first=0; gap=true;
+            }
+            // Timeouts and short successful recv calls do not imply a gap.
+            // UHD can return valid samples together with metadata; keep those samples.
+            if (count) {
+                const std::span<const std::complex<int16_t>> samples(usrpBuffer.data(),count);
+                wifi.submit(samples,first,stream_segment,gap);
+                processing.push(samples,first,stream_segment,gap);
+                const auto stats=processing.stats();
+                processing_drops += stats.dropped_samples-last_drops;
+                processing_overflows += stats.overflows-last_overflows;
+                last_drops=stats.dropped_samples; last_overflows=stats.overflows;
+                first += count; gap=false;
+            }
+        }
+    } catch (const std::exception& e) {
+        { std::lock_guard lock(error_mutex); stream_error=e.what(); }
+        stream_running.store(false);
+    }
+    processing.close(); processor.join();
+    FinishRecording();
 }
 
 void USRPDevice::SetFFTSize(size_t fft_size)
@@ -173,45 +217,21 @@ void USRPDevice::SetFFTSize(size_t fft_size)
 	usrpBuffer = std::move(new_usrp_buffer);
 }
 
-void USRPDevice::DemodulateWiFi()
-{
-	if (stream_running.load())
-		StopStream();
-	usrp_device->set_rx_rate(20e6);
-	usrp_device->set_rx_freq(uhd::tune_request_t(2437e6));
-	usrp_device->set_rx_gain(31.0);
-
-	uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-	stream_cmd.stream_now = true;
-	rx_stream->issue_stream_cmd(stream_cmd);
-
-	std::vector<std::complex<int16_t>> rx_buffer(10000);
-	uhd::rx_metadata_t md;
-
-	std::cout << "Reception in sc16 (int16_t) format started..." << std::endl;
-
-	while (true) {
-		// Метод recv автоматически заполнит буфер целыми числами int16_t
-		size_t num_rx_samps = rx_stream->recv(rx_buffer.data(), rx_buffer.size(), md, 3.0);
-
-		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) break;
-		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) continue;
-
-		process_phy_demodulation(rx_buffer);
-	}
-}
-
 double USRPDevice::SetFrequency(const double frequency)
 {
+	if (stream_running.load()) throw std::logic_error("Stop and join RX before retuning");
 	usrp_device->set_rx_freq(frequency * 1e6);
+	wifi.enable(wifi.snapshot().enabled, sample_rate);
 	center_freq = usrp_device->get_rx_freq();
 	return center_freq / 1e6;
 }
 
 double USRPDevice::SetSamplingRate(const double rate)
 {
+	if (stream_running.load()) throw std::logic_error("Stop and join RX before changing rate");
 	usrp_device->set_rx_rate(rate * 1e6);
 	sample_rate = usrp_device->get_rx_rate();
+	wifi.enable(wifi.snapshot().enabled, sample_rate);
 	return sample_rate / 1e6;
 }
 

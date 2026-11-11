@@ -71,9 +71,10 @@ void Application::ShowUSRPInterface()
         if (!usrp_device_exists.load())
         {
             // Включаем приёмник
-            if (ImGui::Button("Turn on receiver"))
+            if (!connecting.load() && ImGui::Button("Turn on receiver"))
             {
-                app_threads.push_back(std::jthread{ &Application::CreateUSRPDevice, this });
+                connecting.store(true);
+                connection_thread = std::jthread{ &Application::CreateUSRPDevice, this };
             }
         }
         else
@@ -84,7 +85,10 @@ void Application::ShowUSRPInterface()
             //ImGui::InputDouble("USRP Frequency, MHz", &current_frequency);
             if (ImGui::IsItemDeactivatedAfterEdit())
             {
+                const bool restart = usrp_device->IsStreaming();
+                StopReception();
                 usrp_device->SetFrequency(current_frequency);
+                if (restart) StartReception();
                 ResetSpectrumAveraging();
             }
             ImGui::Text("Current Frequency: %.2f MHz", usrp_device->GetFrequency());
@@ -117,7 +121,10 @@ void Application::ShowUSRPInterface()
                         if (ImGui::Selectable(item_label, is_selected))
                         {
                             selected_sampling_rate_index = i;
+                            const bool restart = usrp_device->IsStreaming();
+                            StopReception();
                             usrp_device->SetSamplingRate(sampling_rates_mhz[i]);
+                            if (restart) StartReception();
                             ResetSpectrumAveraging();
                         }
                         if (is_selected)
@@ -158,6 +165,7 @@ void Application::ShowUSRPInterface()
                     if (ImGui::Selectable(item_label, is_selected))
                     {
                         const size_t fft_size = size_t{1} << exponent;
+                        StopReception(); // Also joins a worker that stopped after an RX error.
                         usrp_device->SetFFTSize(fft_size);
                         selected_fft_exponent = exponent;
                         std::lock_guard lock(receiver_mutex);
@@ -181,19 +189,34 @@ void Application::ShowUSRPInterface()
         ImGui::End();
         if (usrp_device_exists.load())
         {
-            // Логика, контролирующая стрим данных
+            // Snapshot copy is short; detection never runs in the ImGui thread.
+            const auto wifi = usrp_device->GetWiFiStatus();
+            bool enabled = wifi.enabled;
+            const bool supported = std::abs(usrp_device->GetSamplingRate()*1e6-20e6)<=20;
+            ImGui::SeparatorText("Wi-Fi L-STF detection");
+            ImGui::BeginDisabled(!supported);
+            if (ImGui::Checkbox("Enable Wi-Fi detection", &enabled)) usrp_device->EnableWiFi(enabled);
+            ImGui::EndDisabled();
+            if (!supported) ImGui::TextDisabled("Requires actual RX rate of 20 MS/s");
+            ImGui::Text("Packet candidates: %llu", static_cast<unsigned long long>(wifi.candidates));
+            ImGui::Text("Wi-Fi drops: %llu samples; queue overflows: %llu", static_cast<unsigned long long>(wifi.queue.dropped_samples), static_cast<unsigned long long>(wifi.queue.overflows));
+            ImGui::Text("RX overflows: %llu; sequence errors: %llu; other errors: %llu", static_cast<unsigned long long>(usrp_device->RxOverflows()), static_cast<unsigned long long>(usrp_device->RxSequenceErrors()), static_cast<unsigned long long>(usrp_device->RxErrors()));
+            ImGui::Text("Spectrum/recording drops: %llu; queue overflows: %llu", static_cast<unsigned long long>(usrp_device->ProcessingDrops()), static_cast<unsigned long long>(usrp_device->ProcessingOverflows()));
+            if (!wifi.recent.empty()) {
+                const auto& last=wifi.recent.back();
+                ImGui::Text("Latest score %.3f; coarse CFO %.1f Hz",last.correlation,last.cfo_hz);
+            }
+            for (const auto& event:wifi.recent)
+                ImGui::Text("Candidate segment %llu sample %llu: r=%.3f CFO=%.1f Hz P=%.6f", static_cast<unsigned long long>(event.segment),static_cast<unsigned long long>(event.sample_index),event.correlation,event.cfo_hz,event.power);
+            if (!wifi.error.empty()) ImGui::TextWrapped("Wi-Fi: %s",wifi.error.c_str());
+            const auto rx_error=usrp_device->StreamError();
+            if (!rx_error.empty()) ImGui::TextWrapped("RX: %s",rx_error.c_str());
 
             if (!usrp_device->IsStreaming())
             {
                 if (ImGui::Button("Start stream"))
                 {
-                    usrp_device->StartStream();
-                    app_threads.push_back(std::jthread{ &Application::GetAndRenderStreamingData, this });
-                }
-
-                if (ImGui::Button("Start WiFi Demod"))
-                {
-                    usrp_device->DemodulateWiFi();
+                    StartReception();
                 }
             }
             else
@@ -241,8 +264,7 @@ void Application::ShowUSRPInterface()
 
                 if (ImGui::Button("Stop stream"))
                 {
-                    usrp_device->StopStream();
-                    app_threads.pop_back();
+                    StopReception();
                 }
 
 
@@ -255,25 +277,31 @@ void Application::ShowUSRPInterface()
 
 void Application::CreateUSRPDevice()
 {
-    bool result;
-    usrp_device = std::make_unique<USRPDevice>(result);
-    usrp_device_exists.store(result);
-    return;
+    try {
+        bool result = false;
+        usrp_device = std::make_unique<USRPDevice>(result);
+        usrp_device_exists.store(result);
+    } catch (const std::exception& e) {
+        std::cerr << "[USRP] " << e.what() << '\n';
+    }
+    connecting.store(false);
 }
 
-void Application::GetAndRenderStreamingData()
+void Application::StartReception()
 {
-    std::jthread jth(&USRPDevice::GetUSRPData, usrp_device.get(), std::ref(temp_data), std::ref(is_data_ready), std::ref(receiver_mutex));
-    while (usrp_device->IsStreaming())
-    {
-        std::lock_guard lock(receiver_mutex);
-        if (is_data_ready.load())
-        {
-            local_data = temp_data;
-            data_sequence.fetch_add(1, std::memory_order_relaxed);
-            is_data_ready.store(false);
-        }
+    if (rx_thread.joinable()) rx_thread.join();
+    usrp_device->StartStream();
+    rx_thread = std::jthread([this] {
+        usrp_device->GetUSRPData(temp_data,is_data_ready,receiver_mutex);
+    });
+}
+void Application::StopReception()
+{
+    if (usrp_device && rx_thread.joinable()) {
+        try { usrp_device->StopStream(); }
+        catch (const std::exception& e) { std::cerr << "[USRP stop] " << e.what() << '\n'; }
     }
+    if (rx_thread.joinable()) rx_thread.join();
 }
 
 void Application::ResetSpectrumAveraging()
@@ -361,6 +389,13 @@ void Application::Run()
         {
             ShowPlot();
         }
+        { // Publish spectrum on the UI thread; local_data has no cross-thread writers.
+            std::lock_guard lock(receiver_mutex);
+            if (is_data_ready.exchange(false)) {
+                local_data = temp_data;
+                data_sequence.fetch_add(1,std::memory_order_relaxed);
+            }
+        }
         ShowUSRPInterface();
         // Rendering
         ImGui::Render();
@@ -389,6 +424,9 @@ void Application::Run()
 
 Application::~Application()
 {
+    if (connection_thread.joinable()) connection_thread.join();
+    StopReception();
+    usrp_device.reset();
 
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
