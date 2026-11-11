@@ -5,3 +5,7 @@
 /.vs/
 /CMakeUserPresets.json
 /vcpkg_installed/
+
+/msbuild/Dependencies.local.props
+*.vcxproj.user
+*.suo

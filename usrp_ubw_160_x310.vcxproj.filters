@@ -1,0 +1,129 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <ItemGroup>
+    <Filter Include="Application" />
+    <Filter Include="Wi-Fi" />
+    <Filter Include="GUI" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Application</Filter>
+    </ClCompile>
+    <ClCompile Include="Application.cpp">
+      <Filter>Application</Filter>
+    </ClCompile>
+    <ClCompile Include="USRPDevice.cpp">
+      <Filter>Application</Filter>
+    </ClCompile>
+    <ClCompile Include="ReaTimeFFT.cpp">
+      <Filter>Application</Filter>
+    </ClCompile>
+    <ClCompile Include="PlotFunctions.cpp">
+      <Filter>Application</Filter>
+    </ClCompile>
+    <ClCompile Include="LStfDetector.cpp">
+      <Filter>Wi-Fi</Filter>
+    </ClCompile>
+    <ClCompile Include="WiFiDemodulator.cpp">
+      <Filter>Wi-Fi</Filter>
+    </ClCompile>
+    <ClCompile Include="Sc16Reader.cpp">
+      <Filter>Wi-Fi</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_demo.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_draw.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_impl_glfw.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_impl_opengl3.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_tables.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\imgui_widgets.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\implot.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\implot_demo.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui\implot_items.cpp">
+      <Filter>GUI</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Application.h">
+      <Filter>Application</Filter>
+    </ClInclude>
+    <ClInclude Include="Core.h">
+      <Filter>Application</Filter>
+    </ClInclude>
+    <ClInclude Include="IqAccumulator.h">
+      <Filter>Wi-Fi</Filter>
+    </ClInclude>
+    <ClInclude Include="IqQueue.h">
+      <Filter>Wi-Fi</Filter>
+    </ClInclude>
+    <ClInclude Include="LStfDetector.h">
+      <Filter>Wi-Fi</Filter>
+    </ClInclude>
+    <ClInclude Include="PlotFunctions.h">
+      <Filter>Application</Filter>
+    </ClInclude>
+    <ClInclude Include="ReaTimeFFT.h">
+      <Filter>Application</Filter>
+    </ClInclude>
+    <ClInclude Include="Sc16Reader.h">
+      <Filter>Wi-Fi</Filter>
+    </ClInclude>
+    <ClInclude Include="USRPDevice.h">
+      <Filter>Application</Filter>
+    </ClInclude>
+    <ClInclude Include="WiFiDemodulator.h">
+      <Filter>Wi-Fi</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imconfig.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imgui.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imgui_impl_glfw.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imgui_impl_opengl3.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imgui_impl_opengl3_loader.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imgui_internal.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\implot.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\implot_internal.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imstb_rectpack.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imstb_textedit.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui\imstb_truetype.h">
+      <Filter>GUI</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
