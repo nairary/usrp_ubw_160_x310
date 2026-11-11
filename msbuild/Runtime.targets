@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="ValidateUsrpDependencies" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(Platform)'!='x64'" Text="Only x64 is supported. Select x64 in Configuration Manager." />
+    <Error Condition="!Exists('$(UsrpUHDIncludeDir)\uhd\config.hpp')" Text="UHD headers missing. Set UHD_ROOT or UsrpUHDIncludeDir in msbuild/Dependencies.local.props." />
+    <Error Condition="!Exists('$(UsrpBoostIncludeDir)\boost\version.hpp')" Text="Boost headers missing. Set BOOST_ROOT or UsrpBoostIncludeDir." />
+    <Error Condition="!Exists('$(UsrpFFTWIncludeDir)\fftw3.h')" Text="FFTW headers missing. Set FFTW_ROOT or UsrpFFTWIncludeDir." />
+    <Error Condition="!Exists('$(UsrpGLFWIncludeDir)\GLFW\glfw3.h')" Text="GLFW headers missing. Set GLFW_ROOT or UsrpGLFWIncludeDir." />
+    <Error Condition="!Exists('$(UsrpUHDLibDir)\$(UsrpUHDLibrary)')" Text="UHD import library missing: $(UsrpUHDLibDir)\$(UsrpUHDLibrary)." />
+    <Error Condition="!Exists('$(UsrpFFTWLibDir)\$(UsrpFFTWLibrary)')" Text="Single-precision FFTW import library missing: $(UsrpFFTWLibDir)\$(UsrpFFTWLibrary)." />
+    <Error Condition="!Exists('$(UsrpGLFWLibDir)\$(UsrpGLFWLibrary)')" Text="GLFW DLL import library missing: $(UsrpGLFWLibDir)\$(UsrpGLFWLibrary)." />
+  </Target>
+  <Target Name="StageUsrpRuntime" AfterTargets="Build">
+    <ItemGroup>
+      <_UsrpDll Include="$(UsrpUHDBinDir)\*.dll" Condition="'$(UsrpUHDBinDir)'!=''" />
+      <_UsrpDll Include="$(UsrpBoostBinDir)\*.dll" Condition="'$(UsrpBoostBinDir)'!=''" />
+      <_UsrpDll Include="$(UsrpFFTWBinDir)\*.dll" Condition="'$(UsrpFFTWBinDir)'!=''" />
+      <_UsrpDll Include="$(UsrpGLFWBinDir)\*.dll" Condition="'$(UsrpGLFWBinDir)'!=''" />
+      <_UsrpExtraDirectory Include="$(UsrpExtraRuntimeDirs)" />
+      <_UsrpDll Include="@(_UsrpExtraDirectory->'%(Identity)\*.dll')" />
+      <_UsrpRequiredDll Include="$(UsrpRequiredDlls)" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_UsrpDll)">
+      <Output TaskParameter="Filtered" ItemName="_UsrpDistinctDll" />
+    </RemoveDuplicates>
+    <RemoveDuplicates Inputs="@(_UsrpDistinctDll->'%(Filename)%(Extension)')">
+      <Output TaskParameter="Filtered" ItemName="_UsrpDistinctDllName" />
+    </RemoveDuplicates>
+    <Error Condition="'@(_UsrpDistinctDll->Count())'!='@(_UsrpDistinctDllName->Count())'" Text="Duplicate DLL filenames in runtime directories. Keep only one matching SDK version per DLL name." />
+    <MakeDir Directories="$(OutDir)" />
+    <Copy SourceFiles="@(_UsrpDistinctDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Error Condition="!Exists('$(OutDir)%(_UsrpRequiredDll.Identity)')" Text="Required runtime DLL missing: %(_UsrpRequiredDll.Identity). Set the matching Usrp*BinDir or UsrpExtraRuntimeDirs, and rebuild." />
+  </Target>
+</Project>

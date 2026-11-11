@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Copy to Dependencies.local.props (ignored by Git). Roots may instead be environment variables.
+       Paths below are relative examples, not machine-specific locations. -->
+  <PropertyGroup>
+    <UsrpUHDRoot>$(UHD_ROOT)</UsrpUHDRoot>
+    <UsrpBoostRoot>$(BOOST_ROOT)</UsrpBoostRoot>
+    <UsrpFFTWRoot>$(FFTW_ROOT)</UsrpFFTWRoot>
+    <UsrpGLFWRoot>$(GLFW_ROOT)</UsrpGLFWRoot>
+    <!-- Override derived paths directly for nonstandard SDK archives. -->
+    <UsrpBoostIncludeDir>$(UsrpBoostRoot)</UsrpBoostIncludeDir>
+    <UsrpGLFWLibDir>$(UsrpGLFWRoot)\lib-vc2022</UsrpGLFWLibDir>
+    <UsrpGLFWBinDir>$(UsrpGLFWRoot)\lib-vc2022</UsrpGLFWBinDir>
+    <!-- Official FFTW binary zip puts fftw3.h and DLLs at its root. -->
+    <UsrpFFTWIncludeDir>$(UsrpFFTWRoot)</UsrpFFTWIncludeDir>
+    <UsrpFFTWLibDir>$(UsrpFFTWRoot)</UsrpFFTWLibDir>
+    <UsrpFFTWBinDir>$(UsrpFFTWRoot)</UsrpFFTWBinDir>
+    <!-- For SDKs that call their UHD DLL libuhd.dll, override BOTH names: -->
+    <!-- <UsrpUHDLibrary>libuhd.lib</UsrpUHDLibrary> -->
+    <!-- <UsrpRequiredDlls>libuhd.dll;libfftw3f-3.dll;glfw3.dll</UsrpRequiredDlls> -->
+    <!-- Add directories containing transitive DLLs shipped with the same UHD SDK: -->
+    <!-- <UsrpExtraRuntimeDirs>$(UsrpUHDRoot)\runtime</UsrpExtraRuntimeDirs> -->
+  </PropertyGroup>
+</Project>

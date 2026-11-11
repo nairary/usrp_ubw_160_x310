@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Environment variables become MSBuild properties automatically. All may be overridden. -->
+  <PropertyGroup Label="SDK roots">
+    <UsrpUHDRoot Condition="'$(UsrpUHDRoot)'==''">$(UHD_ROOT)</UsrpUHDRoot>
+    <UsrpBoostRoot Condition="'$(UsrpBoostRoot)'==''">$(BOOST_ROOT)</UsrpBoostRoot>
+    <UsrpFFTWRoot Condition="'$(UsrpFFTWRoot)'==''">$(FFTW_ROOT)</UsrpFFTWRoot>
+    <UsrpGLFWRoot Condition="'$(UsrpGLFWRoot)'==''">$(GLFW_ROOT)</UsrpGLFWRoot>
+  </PropertyGroup>
+  <Import Project="Dependencies.local.props" Condition="Exists('$(MSBuildThisFileDirectory)Dependencies.local.props')" />
+  <PropertyGroup Label="Include and library directories">
+    <UsrpUHDIncludeDir Condition="'$(UsrpUHDIncludeDir)'==''">$(UsrpUHDRoot)\include</UsrpUHDIncludeDir>
+    <UsrpUHDLibDir Condition="'$(UsrpUHDLibDir)'==''">$(UsrpUHDRoot)\lib</UsrpUHDLibDir>
+    <UsrpBoostIncludeDir Condition="'$(UsrpBoostIncludeDir)'==''">$(UsrpBoostRoot)</UsrpBoostIncludeDir>
+    <UsrpBoostLibDir Condition="'$(UsrpBoostLibDir)'==''">$(UsrpBoostRoot)\lib</UsrpBoostLibDir>
+    <UsrpFFTWIncludeDir Condition="'$(UsrpFFTWIncludeDir)'==''">$(UsrpFFTWRoot)\include</UsrpFFTWIncludeDir>
+    <UsrpFFTWLibDir Condition="'$(UsrpFFTWLibDir)'==''">$(UsrpFFTWRoot)\lib</UsrpFFTWLibDir>
+    <UsrpGLFWIncludeDir Condition="'$(UsrpGLFWIncludeDir)'==''">$(UsrpGLFWRoot)\include</UsrpGLFWIncludeDir>
+    <UsrpGLFWLibDir Condition="'$(UsrpGLFWLibDir)'==''">$(UsrpGLFWRoot)\lib</UsrpGLFWLibDir>
+    <UsrpUHDLibrary Condition="'$(UsrpUHDLibrary)'==''">uhd.lib</UsrpUHDLibrary>
+    <UsrpFFTWLibrary Condition="'$(UsrpFFTWLibrary)'==''">libfftw3f-3.lib</UsrpFFTWLibrary>
+    <UsrpGLFWLibrary Condition="'$(UsrpGLFWLibrary)'==''">glfw3dll.lib</UsrpGLFWLibrary>
+    <!-- Current app uses no out-of-line Boost functions; keep explicit extras available. -->
+    <UsrpBoostLibraries Condition="'$(UsrpBoostLibraries)'==''"></UsrpBoostLibraries>
+    <UsrpExtraLibraries Condition="'$(UsrpExtraLibraries)'==''"></UsrpExtraLibraries>
+    <UsrpExtraIncludeDirs Condition="'$(UsrpExtraIncludeDirs)'==''"></UsrpExtraIncludeDirs>
+    <UsrpExtraLibraryDirs Condition="'$(UsrpExtraLibraryDirs)'==''"></UsrpExtraLibraryDirs>
+  </PropertyGroup>
+  <PropertyGroup Label="Runtime staging">
+    <UsrpUHDBinDir Condition="'$(UsrpUHDBinDir)'=='' and '$(UsrpUHDRoot)'!=''">$(UsrpUHDRoot)\bin</UsrpUHDBinDir>
+    <UsrpBoostBinDir Condition="'$(UsrpBoostBinDir)'=='' and '$(UsrpBoostRoot)'!=''">$(UsrpBoostRoot)\bin</UsrpBoostBinDir>
+    <UsrpFFTWBinDir Condition="'$(UsrpFFTWBinDir)'=='' and '$(UsrpFFTWRoot)'!=''">$(UsrpFFTWRoot)\bin</UsrpFFTWBinDir>
+    <UsrpGLFWBinDir Condition="'$(UsrpGLFWBinDir)'=='' and '$(UsrpGLFWRoot)'!=''">$(UsrpGLFWRoot)\bin</UsrpGLFWBinDir>
+    <UsrpExtraRuntimeDirs Condition="'$(UsrpExtraRuntimeDirs)'==''"></UsrpExtraRuntimeDirs>
+    <UsrpRequiredDlls Condition="'$(UsrpRequiredDlls)'==''">uhd.dll;libfftw3f-3.dll;glfw3.dll</UsrpRequiredDlls>
+  </PropertyGroup>
+</Project>
