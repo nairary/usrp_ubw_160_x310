@@ -4,74 +4,165 @@ C++20, UHD, GLFW/OpenGL, Dear ImGui/ImPlot and single-precision FFTW. Wi-Fi supp
 in this milestone is **L-STF candidate detection only**, at actual RX rate
 20 MS/s (tolerance ±20 Hz). It does not decode OFDM symbols, L-LTF, HT-SIG or MAC.
 
+## Visual Studio 2022 / Windows x64 (CMake)
+
+**Windows/MSVC build and DLL staging have not been tested in the current Linux
+cloud environment.** Linux CMake builds/tests validate the source lists and
+restored headers, but cannot validate Windows ABI, MSVC linking, DLL discovery or
+X310 hardware operation. Reception and Wi-Fi algorithms are unchanged by this
+build setup.
+
+### 1. Install prerequisites
+
+- Visual Studio 2022, **Desktop development with C++**, MSVC v143 x64/x86 tools,
+  Windows 10/11 SDK, **C++ CMake tools for Windows**. Use a current VS 2022 release
+  with CMake **3.24 or newer** (presets schema 5).
+- Git for Windows. Python 3 is optional for the offline CLI integration test and
+  UHD image-downloader scripts; the C++ test always runs.
+- Official **Windows x64 UHD SDK**, including development headers, import library,
+  runtime DLLs and utilities. This project uses UHD 4.8 APIs; use a compatible
+  UHD 4.x SDK and matching FPGA images. The SDK is used in place, not rebuilt.
+  Default lookup is `%ProgramFiles%/UHD`; a custom install uses `UHD_ROOT` below.
+- Microsoft Visual C++ 2015–2022 Redistributable **x64** on machines running the
+  app without Visual Studio. Do not use 32-bit libraries.
+
+### 2. Prepare vcpkg and environment
+
+In PowerShell (replace paths with your install locations):
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git C:/src/vcpkg
+# Match the manifest baseline for a reproducible initial installation:
+git -C C:/src/vcpkg checkout 2ec0f1747d8186a5c9babe276e2ad57cd2b12d2a
+& C:/src/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+$env:VCPKG_ROOT = "C:/src/vcpkg"
+$env:UHD_ROOT = "C:/Program Files/UHD"
+[Environment]::SetEnvironmentVariable("VCPKG_ROOT", $env:VCPKG_ROOT, "User")
+[Environment]::SetEnvironmentVariable("UHD_ROOT", $env:UHD_ROOT, "User")
+```
+
+Restart Visual Studio after changing persistent environment variables. Internet
+access is needed for vcpkg's first manifest restore. The manifest installs Boost
+format/program_options, FFTW3 (the app links **single precision fftw3f**) and GLFW
+for **x64-windows**. OpenGL is provided by the Windows SDK/graphics driver.
+There is no UHD port in the pinned registry: use the installed SDK. Do not install
+a second UHD or add hand-written `.lib`/include lists to the Visual Studio project.
+
+### 3. Open, build, run
+
+**Open Folder** in VS 2022, select the repository root, then choose the
+`Windows x64 / VS 2022 / vcpkg` configure preset. If VS has legacy CMake integration
+enabled, enable **Use CMakePresets.json** in its CMake options and reopen the folder.
+Select **Release** (or **RelWithDebInfo**) and startup target **usrp.exe**. Build
+and press F5. CMake lists all sources, restores dependencies, links the targets and
+stages non-system runtime DLLs next to the executable automatically. No manual
+adding of `.cpp`, include directories or library directories is needed.
+
+Alternatively, in a VS 2022 Developer PowerShell with the same environment:
+
+```powershell
+cmake --preset windows-vs2022
+cmake --build --preset windows-release
+ctest --preset windows-release
+# Open the generated solution if preferred:
+start build/vs2022/usrp_ubw_160_x310.sln
+# Or run directly, with generated data kept in the build tree:
+Push-Location build/vs2022/Release
+./usrp.exe
+Pop-Location
+```
+
+CMake sets `usrp` as the generated solution's startup project and its executable
+directory as debugger working directory. This keeps `imgui.ini` and `recordings/`
+in the build tree. Presets expose Release/RelWithDebInfo, using `/MD` to match
+release UHD and the `x64-windows` dynamic CRT. RelWithDebInfo provides application
+symbols while using the same release SDKs. Do not mix `/MDd`, static-triplet Boost,
+x86 DLLs or unrelated UHD DLL versions into this configuration.
+
+### UHD runtime and X310
+
+The SDK root must contain `include/uhd`, `lib/uhd.lib` (or `libuhd.lib`) and
+`bin/uhd.dll` (or `libuhd.dll`). For a nonstandard SDK layout, set the advanced
+CMake cache entries `UHD_INCLUDE_DIR`, `UHD_LIBRARY`, `UHD_RUNTIME_DLL` once; all
+application/library source paths still come from CMake.
+
+After linking, a CMake `dumpbin` dependency scan copies UHD, vcpkg and transitive
+SDK DLLs beside `usrp.exe`, excluding Windows system/API-set DLLs. The SDK's own
+`bin` and vcpkg release `bin` are searched automatically. If UHD's matching Boost
+or other runtime DLLs are in a separate directory, set the CMake cache variable
+`USRP_RUNTIME_DIRS` (a semicolon-separated directory list), for example:
+
+```powershell
+cmake --preset windows-vs2022 '-DUSRP_RUNTIME_DIRS=C:/UHD-runtime/bin;C:/UHD-Boost/lib'
+cmake --build --preset windows-release
+```
+
+Use the DLLs shipped/built with that **same UHD SDK**. vcpkg Boost supplies
+application headers/libraries; it does not replace version-specific dependencies
+of an externally built UHD DLL. An unresolved runtime dependency deliberately
+fails the post-build step with its name. Fix the SDK runtime directory and rebuild;
+do not download arbitrary DLLs. If launching fails with `0xc000007b`, check x64
+architecture throughout. For `DLL not found`, also verify the x64 VC++ runtime.
+Run from the build output directory or use F5, not a copied executable alone.
+
+FPGA image data is not a DLL and is not copied beside the app. Use the UHD SDK's
+image downloader as documented by that SDK, and point `UHD_IMAGES_DIR` at the
+matching installed/downloaded image directory if UHD cannot locate it. Install
+images matching the UHD runtime and X310 FPGA/network configuration; firmware
+flashing is not performed by this build setup. Configure the PC NIC/subnet and
+firewall according to Ettus's X3xx guide. From the SDK utilities directory run:
+
+```powershell
+./uhd_find_devices.exe --args="type=x300"
+./uhd_usrp_probe.exe --args="type=x300"
+```
+
+Then start `usrp.exe` and click **Turn on receiver**. The current application
+searches with `type=x300`; no hardware-specific reception code was changed. Use
+matching image/runtime versions and validate connectivity before debugging the
+application. Image download, NIC configuration and actual X310 capture must be
+verified on the Windows hardware host.
+
+## Dependency/source layout
+
+| Dependency | Build source |
+|---|---|
+| UHD | Installed x64 SDK, imported `UHD::uhd`; root via `UHD_ROOT`/`USRP_UHD_ROOT` |
+| Boost | vcpkg `boost-format`, `boost-program-options`; `Boost::program_options` |
+| FFTW3 | vcpkg `fftw3`; `FFTW3::fftw3f` (single precision) |
+| GLFW | vcpkg `glfw3`; target `glfw` |
+| OpenGL | System/Windows SDK `OpenGL::GL` |
+| Dear ImGui docking / ImPlot | Bundled implementations and restored pinned headers; see [versions and licenses](ext/imgui/VERSIONS.md) |
+| GLAD | Root `glad.c` is unused and excluded; ImGui's OpenGL3 backend has its own loader |
+
+CMake explicitly lists vendor sources once. Do **not** additionally install/link
+vcpkg imgui/implot, compile upstream implementations, or add `glad.c` to the
+application. Existing `imgui/...` include paths are supported by exported target
+include directories. The bundled docking API and ImPlotSpec API require these
+matched revisions, not arbitrary release headers. No header-fetch script is
+needed for CMake: all required headers/licenses are committed.
+
 ## Hardware-independent build and tests
 
-Requires Python 3 and a C++20 compiler. From the repository root:
+With CMake 3.24+, Ninja and a C++20 compiler on Linux or Windows:
 
 ```sh
-python3 tools/build_wifi.py
-build/wifi/wifi_detect recording.bin 4096
+cmake --preset offline
+cmake --build --preset offline
+ctest --preset offline
+build/offline/wifi_detect recording.bin 4096
 ```
 
-On Windows, run `python tools/build_wifi.py` from an **x64 Native Tools Command
-Prompt for VS 2022**. This selects `cl /std:c++20 /EHsc`; executables have `.exe`
-extensions. These targets require neither UHD, FFTW nor graphics libraries.
-`--compiler` / `CXX` selects another compiler; `--output` selects the build directory.
-The build script runs both C++ tests and the Python CLI integration test, propagating
-compiler/test failures.
+Use `.exe` on Windows and a VS Developer shell. This preset needs no UHD, vcpkg,
+FFTW or GUI libraries. CTest runs the C++ detector tests and, when Python is
+available, the real-file offline CLI integration test. For older manual compiler
+workflows, `python tools/build_wifi.py` remains available.
 
-Offline input is interleaved **signed 16-bit little-endian I,Q**, four bytes per
-complex sample, matching Windows/Linux x86 recordings. The recording must have
-been captured at 20 MS/s. Block size is in samples; even size 1 is supported.
-CSV output contains the candidate sample offset, correlation, coarse CFO in Hz,
-normalized mean complex power and status. Malformed/truncated IQ and invalid block
-sizes return a nonzero exit code. Offline and live paths use `LStfDetector`.
-
-## GUI build
-
-The original checkout contains vendor `.cpp` files but omits their headers.
-Fetch matching pinned headers **outside the source tree**:
-
-```sh
-python3 tools/fetch_gui_headers.py
-```
-
-This supplies `build/include/imgui` from ImGui
-`036bf939b6f8d74ad76bcf926b757c56e68c54ff` and ImPlot
-`d65a2bef53d32502407de3a4be80f191e2f412d7`, including licenses. Source comparison
-matches the bundled implementations after normalizing whitespace and their
-`imgui/` include prefix. No vendor `.cpp` files are replaced.
-
-Install compatible x64 UHD (including Boost headers/runtime), FFTW single precision,
-GLFW and OpenGL development libraries with the same compiler/runtime ABI.
-For MSVC, for example (substitute installed SDK paths):
-
-```bat
-python tools/build_app.py --include build/include --include build/include/imgui --include C:/UHD/include --include C:/Boost --include C:/fftw/include --include C:/glfw/include --lib C:/UHD/lib --lib C:/fftw/lib --lib C:/glfw/lib
-```
-
-Default MSVC library names are `uhd.lib`, `libfftw3f-3.lib`, `glfw3dll.lib` and
-`opengl32.lib`. Repeat `--link NAME.lib` to override the complete library list
-(e.g. for static GLFW, also supply its Win32 dependencies). Add UHD, FFTW, GLFW
-and Boost DLL locations to `PATH`. Run `build/app/usrp.exe` from `build/app` so
-`imgui.ini` and `recordings/` stay outside the sources.
-
-For Linux, pass the applicable include/library roots to the same script. Example
-using the published cloud environment's retained SDKs:
-
-```sh
-source /workspace/.cloud-setup/env.sh
-python3 tools/fetch_gui_headers.py --cache /workspace/.cloud-setup --output /workspace/.cloud-setup/include
-python3 tools/build_app.py --output /workspace/.cloud-setup/review-app \
-  --include /workspace/.cloud-setup/include \
-  --include /workspace/.cloud-setup/include/imgui \
-  --include /workspace/.cloud-setup/sysroot/usr/include \
-  --include /workspace/.cloud-setup/sysroot/usr/include/x86_64-linux-gnu \
-  --lib /workspace/.cloud-setup/sysroot/usr/lib/x86_64-linux-gnu
-```
-
-The app retains FFTW for the spectrum and future OFDM processing. There is no
-unused OFDM plan or speculative symbol-boundary calculation in the Wi-Fi stage.
+Offline input is interleaved signed 16-bit little-endian I,Q, four bytes per
+complex sample, captured at 20 MS/s. Block size is in samples, including size 1.
+CSV includes candidate sample offset, correlation, coarse CFO, power and status.
+Malformed/truncated IQ or invalid block sizes return a nonzero exit code.
+Offline and live Wi-Fi paths use the same `LStfDetector`.
 
 ## Live behavior and concurrency
 
@@ -145,7 +236,7 @@ suppress duplicates until the release condition is met.
 
 ## Validation and limitations
 
-Validated on Linux / GCC 14 / C++20:
+Validated on Linux / GCC 14 / C++20 (including the CMake build):
 
 - Full GUI build against UHD 4.8, FFTW 3.3.10 and GLFW 3.4; Xvfb launch and rendered
   `Vorot` window with no startup errors.
