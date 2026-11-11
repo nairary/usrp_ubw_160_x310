@@ -36,6 +36,7 @@ private:
 	std::mutex receiver_mutex;
 	std::jthread connection_thread, rx_thread;
     std::atomic_bool connecting = false;
+    bool wifi_receive_mode = false;
 	std::vector<float> local_data;
 	std::vector<float> temp_data;
 	std::vector<float> averaged_data;

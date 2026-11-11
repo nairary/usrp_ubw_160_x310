@@ -59,7 +59,7 @@ void USRPDevice::StopStream()
     stream_running.store(false);
     uhd::stream_cmd_t stop_cmd(uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS);
     rx_stream->issue_stream_cmd(stop_cmd);
-    // Application joins GetUSRPData before reconfiguration/destruction.
+    // Application joins the selected RX method before reconfiguration/destruction.
 }
 
 void USRPDevice::StartRecording(double duration_seconds)
@@ -132,7 +132,40 @@ void USRPDevice::FinishRecording()
 
 void USRPDevice::GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex)
 {
-    // Only this function calls recv. Its fast path copies IQ into bounded queues;
+	const size_t fft_size = fft_processor->getFFTSize();
+	while (stream_running)
+	{
+		size_t num_rx_samps = rx_stream->recv(usrpBuffer.data(), fft_size, md, 1.0);
+		// Проверка на ошибки связи
+		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) {
+			std::cerr << "[USRP] Таймаут получения данных!" << std::endl;
+			continue;
+		}
+		if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_OVERFLOW) {
+			// Буфер переполнен (процессор или сеть не успевают за USRP).
+			// Печатаем "O" (стандартное поведение UHD) и продолжаем.
+			std::cerr << "O" << std::flush;
+			continue;
+		}
+		if (num_rx_samps != fft_size) {
+			continue; // Получили неполный пакет — пропускаем во избежание артефактов FFT
+		}
+		WriteRecordingChunk(usrpBuffer.data(), num_rx_samps);
+		fft_processor->processBlock(usrpBuffer.data(), fft_size);
+		{
+			std::lock_guard lk{ data_mutex };
+			output_data = fft_processor->getLatestMagnitudes();
+			is_data_ready.store(true);
+		}
+	}
+
+
+}
+
+void USRPDevice::GetWiFiData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex)
+{
+    // Wi-Fi receive mode replaces the legacy loop; never run both concurrently.
+    // Its fast path copies IQ into bounded queues;
     // FFT and file writes run in the processing worker, Wi-Fi in its own worker.
     IqQueue processing(64);
     const size_t fft_size = fft_processor->getFFTSize();

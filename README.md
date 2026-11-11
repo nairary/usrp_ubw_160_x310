@@ -75,24 +75,30 @@ unused OFDM plan or speculative symbol-boundary calculation in the Wi-Fi stage.
 
 ## Live behavior and concurrency
 
-1. Connect the X310, select rate/frequency, start the stream. The existing spectrum,
-   averaging and raw-IQ recording controls remain available.
-2. At actual rate 20 MS/s, enable **Wi-Fi detection**. The checkbox only changes
-   worker state. The UI shows lifetime candidate count, latest score/CFO, recent
+1. Connect the X310 and select rate/frequency. The existing spectrum, averaging
+   and raw-IQ recording controls remain available.
+2. Before starting the stream, enable **Wi-Fi detection** at actual rate 20 MS/s
+   to select `GetWiFiData()`. Otherwise reception uses the unchanged legacy
+   `GetUSRPData()`. Stop a legacy stream before selecting Wi-Fi reception. In an
+   already active Wi-Fi stream, the checkbox only changes detection worker state. The UI shows lifetime candidate count, latest score/CFO, recent
    events (last eight), known queue sample drops, queue overflows, and UHD errors.
 3. Retuning stops and joins RX/processing before changing hardware settings, resets
    Wi-Fi state, then resumes if the stream was active. Leaving 20 MS/s disables
    detection. Stop/restart starts a new sample-index segment. Shutdown joins the
    connection, RX/processing and Wi-Fi workers before their state is destroyed.
 
-There is one RX streamer and exactly one `recv` loop. RX only handles metadata and
-copies samples into queues. Spectrum FFT and file I/O run in a processing worker;
+There is one RX streamer and only one active receive method. `StartReception()`
+selects either the unchanged legacy `GetUSRPData()` or the separate `GetWiFiData()`;
+they never run concurrently. The following queue/partial-IQ guarantees apply to
+`GetWiFiData()`. Its RX loop only handles metadata and copies samples into queues. Spectrum FFT and file I/O run in a processing worker;
 Wi-Fi correlation runs in a separate worker. Each queue is bounded by block count
 (64 spectrum/recording blocks; 32 Wi-Fi blocks), with blocks bounded by the RX
 buffer size. RX never waits for queue space. Queue synchronization can briefly
 wait on a mutex; it is not a lock-free hard-real-time implementation.
 
-Valid short receives remain ordered. `IqAccumulator` retains incomplete FFT blocks
+The legacy `GetUSRPData()` retains its original synchronous FFT/file I/O and
+full-FFT-block receive requirement; it does not feed the Wi-Fi detector.
+In Wi-Fi receive mode, valid short receives remain ordered. `IqAccumulator` retains incomplete FFT blocks
 without padding. Queue overflow drops the newest block, counts its samples and
 marks the next accepted block discontinuous. Wi-Fi resets correlation history on
 that marker, segment change, offset gap or enable generation change. Queued data

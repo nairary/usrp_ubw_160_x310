@@ -37,6 +37,9 @@
 		void StartRecording(double duration_seconds);
 		std::filesystem::path GetLastRecordingBasePath() const { std::lock_guard lock(recording_mutex); return last_recording_base_path; }
 		void GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex);
+        // Alternative RX mode; shares the streamer, must not run alongside GetUSRPData.
+        void GetWiFiData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex);
+        void StopRecording() { FinishRecording(); }
 		// Входная частота в МГц. Возвращает реальную частоту в МГц
 		double SetFrequency(const double frequency);
 

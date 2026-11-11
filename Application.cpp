@@ -194,10 +194,12 @@ void Application::ShowUSRPInterface()
             bool enabled = wifi.enabled;
             const bool supported = std::abs(usrp_device->GetSamplingRate()*1e6-20e6)<=20;
             ImGui::SeparatorText("Wi-Fi L-STF detection");
-            ImGui::BeginDisabled(!supported);
+            const bool legacy_stream = usrp_device->IsStreaming() && !wifi_receive_mode;
+            ImGui::BeginDisabled(!supported || legacy_stream);
             if (ImGui::Checkbox("Enable Wi-Fi detection", &enabled)) usrp_device->EnableWiFi(enabled);
             ImGui::EndDisabled();
             if (!supported) ImGui::TextDisabled("Requires actual RX rate of 20 MS/s");
+            if (legacy_stream) ImGui::TextDisabled("Stop the stream to select Wi-Fi reception");
             ImGui::Text("Packet candidates: %llu", static_cast<unsigned long long>(wifi.candidates));
             ImGui::Text("Wi-Fi drops: %llu samples; queue overflows: %llu", static_cast<unsigned long long>(wifi.queue.dropped_samples), static_cast<unsigned long long>(wifi.queue.overflows));
             ImGui::Text("RX overflows: %llu; sequence errors: %llu; other errors: %llu", static_cast<unsigned long long>(usrp_device->RxOverflows()), static_cast<unsigned long long>(usrp_device->RxSequenceErrors()), static_cast<unsigned long long>(usrp_device->RxErrors()));
@@ -290,9 +292,19 @@ void Application::CreateUSRPDevice()
 void Application::StartReception()
 {
     if (rx_thread.joinable()) rx_thread.join();
+    wifi_receive_mode = usrp_device->GetWiFiStatus().enabled;
     usrp_device->StartStream();
     rx_thread = std::jthread([this] {
-        usrp_device->GetUSRPData(temp_data,is_data_ready,receiver_mutex);
+        try {
+            if (wifi_receive_mode)
+                usrp_device->GetWiFiData(temp_data,is_data_ready,receiver_mutex);
+            else
+                usrp_device->GetUSRPData(temp_data,is_data_ready,receiver_mutex);
+        } catch (const std::exception& e) {
+            std::cerr << "[USRP RX] " << e.what() << '\n';
+            try { usrp_device->StopStream(); } catch (...) {}
+        }
+        usrp_device->StopRecording();
     });
 }
 void Application::StopReception()
