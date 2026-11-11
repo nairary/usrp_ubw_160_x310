@@ -22,7 +22,8 @@ public:
 	void ShowPlot();
 	void ShowUSRPInterface();
 	void CreateUSRPDevice();
-	void GetAndRenderStreamingData();
+	void StartReception();
+    void StopReception();
 	void ResetSpectrumAveraging();
 	void UpdateSpectrumAveraging(const std::vector<float>& spectrum, double sampling_rate_hz);
 	const std::vector<float>& GetSpectrumForPlot() const;
@@ -33,7 +34,9 @@ private:
 	std::atomic_bool usrp_device_exists = false;
 	std::atomic_bool is_data_ready = false;
 	std::mutex receiver_mutex;
-	std::vector<std::jthread> app_threads;
+	std::jthread connection_thread, rx_thread;
+    std::atomic_bool connecting = false;
+    bool wifi_receive_mode = false;
 	std::vector<float> local_data;
 	std::vector<float> temp_data;
 	std::vector<float> averaged_data;

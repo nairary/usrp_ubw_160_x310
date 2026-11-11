@@ -35,8 +35,11 @@
 		bool IsStreaming() const { return stream_running.load(); }
 		bool IsRecording() const { return recording_running.load(); }
 		void StartRecording(double duration_seconds);
-		const std::filesystem::path& GetLastRecordingBasePath() const { return last_recording_base_path; }
+		std::filesystem::path GetLastRecordingBasePath() const { std::lock_guard lock(recording_mutex); return last_recording_base_path; }
 		void GetUSRPData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex);
+        // Alternative RX mode; shares the streamer, must not run alongside GetUSRPData.
+        void GetWiFiData(std::vector<float>& output_data, std::atomic_bool& is_data_ready, std::mutex& data_mutex);
+        void StopRecording() { FinishRecording(); }
 		// Входная частота в МГц. Возвращает реальную частоту в МГц
 		double SetFrequency(const double frequency);
 
@@ -55,9 +58,22 @@
 		// Изменить число точек FFT можно только при остановленном потоке.
 		void SetFFTSize(size_t fft_size);
 		size_t GetFFTSize() const { return fft_processor->getFFTSize(); }
-		void DemodulateWiFi();
+		void EnableWiFi(bool enabled) { wifi.enable(enabled, sample_rate); }
+        WiFiDemodulator::Snapshot GetWiFiStatus() const { return wifi.snapshot(); }
+        uint64_t RxOverflows() const { return rx_overflows.load(); }
+        uint64_t RxSequenceErrors() const { return rx_sequence_errors.load(); }
+        uint64_t RxErrors() const { return rx_errors.load(); }
+        uint64_t ProcessingDrops() const { return processing_drops.load(); }
+        uint64_t ProcessingOverflows() const { return processing_overflows.load(); }
+        std::string StreamError() const { std::lock_guard lock(error_mutex); return stream_error; }
 	private:
-		std::vector<std::complex<int16_t>> usrpBuffer;
+		WiFiDemodulator wifi;
+        uint64_t stream_segment = 0;
+        std::atomic_uint64_t rx_overflows = 0, rx_sequence_errors = 0, rx_errors = 0;
+        std::atomic_uint64_t processing_drops = 0, processing_overflows = 0;
+        mutable std::mutex error_mutex;
+        std::string stream_error;
+        std::vector<std::complex<int16_t>> usrpBuffer;
 		uhd::rx_streamer::sptr rx_stream;
 		uhd::usrp::multi_usrp::sptr usrp_device;
 		uhd::rx_metadata_t md;
@@ -68,7 +84,7 @@
 		void FinishRecording();
 		std::atomic_bool stream_running = false;
 		std::atomic_bool recording_running = false;
-		std::mutex recording_mutex;
+		mutable std::mutex recording_mutex;
 		std::ofstream recording_file;
 		size_t recording_samples_remaining = 0;
 		std::filesystem::path last_recording_base_path;
