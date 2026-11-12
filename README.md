@@ -1,8 +1,7 @@
 # USRP X310 / UBX-160 spectrum analyzer and Wi-Fi L-STF detection
 
-C++20, UHD, GLFW/OpenGL, Dear ImGui/ImPlot and single-precision FFTW. Wi-Fi support
-in this milestone is **L-STF candidate detection only**, at actual RX rate
-20 MS/s (tolerance ±20 Hz). It does not decode OFDM symbols, L-LTF, HT-SIG or MAC.
+C++20, UHD, GLFW/OpenGL, Dear ImGui/ImPlot and single-precision FFTW. Wi-Fi support includes **L-STF candidate detection and L-LTF timing/CFO synchronization**,
+at actual RX rate 20 MS/s (tolerance ±20 Hz). It does not decode L-SIG, HT-SIG or MAC.
 
 ## Visual Studio 2026: native solution, no CMake
 
@@ -374,3 +373,40 @@ hardware, sustained 20 MS/s throughput and overload behavior on real hardware ha
 **not** been validated in this Linux environment. Vendor ImPlot demo code emits
 pre-existing enum-combination deprecation warnings. Hardware acceptance remains
 necessary before claiming radio readiness.
+
+## L-LTF synchronization in the Wi-Fi worker
+
+`WiFiDemodulator::run()` retains normalized IQ in a bounded history independently
+of input chunks. After an L-STF candidate it searches the first useful legacy LTF
+in `[candidate_index + 128, candidate_index + 288]`, rather than assuming a symbol
+boundary from the autocorrelation crossing. Search completes once both 64-sample
+symbols are available for the entire window (through `candidate_index + 416`).
+Internal chunks are at most 256 samples; history is trimmed to 1024 samples.
+An incomplete candidate waits for more continuous IQ; a discontinuity, segment or
+enable-generation change clears history and pending candidates.
+
+The known IEEE L-LTF reference is correlated after coarse CFO correction. Both
+64-sample matches must pass 0.55 normalized squared correlation, their repetition
+must pass 0.75, and the preceding 32-sample cyclic extension must pass 0.65.
+The best paired match supplies the first useful LTF index. This is a strongest
+matched-path timing estimate; in multipath it is not necessarily the earliest
+physical arrival. The nominal L-STF origin is inferred by subtracting 192 samples.
+The residual CFO uses the phase between the two LTF copies after removing the
+coarse phase advance: `fine = arg(R * exp(-j*2*pi*coarse*64/Fs))*Fs/(2*pi*64)`.
+`total_cfo_hz = coarse_cfo_hz + fine_cfo_hz`; fine CFO is unambiguous within
+±156.25 kHz of the coarse estimate at 20 MS/s.
+
+Results are published under a short lock in `Snapshot::recent_sync` (last eight):
+segment, STF candidate index, first LTF index, inferred packet start, match score,
+coarse/residual/total CFO. `synchronized_packets` and `rejected_candidates` are
+lifetime counters; recent synchronization results clear on enable changes. The
+GUI shows the last timing result and total CFO. Correlation runs outside the UI
+and state mutex. No corrected OFDM stream, channel estimate or L-SIG decoder is
+produced yet; CFO compensation here is used for LTF matching and estimation.
+The standalone `wifi_detect` CLI remains an L-STF-only detector.
+
+Deterministic worker tests cover known timing/CFO, positive and negative CFO,
+12 dB and clean fixtures, single-sample through whole-buffer input, consecutive
+packets, segment-start packets, rejected tone/STF-only/invalid-LTF inputs and a
+split LTF across a discontinuity. These are synthetic AWGN/single-path checks;
+real captures, severe multipath, Windows/MSVC and X310 throughput remain unverified.

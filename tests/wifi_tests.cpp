@@ -138,4 +138,81 @@ void readerTests() {
     }
     std::istringstream broken(bytes+"x");bool failed=false;try{readSc16(broken,s.size()+1);}catch(const std::runtime_error&){failed=true;}require(failed,"truncated file accepted");
 }
-int main() {try {accumulatorTests();std::cout<<"partial RX accumulator: PASS\n";detectorTests();std::cout<<"detector: PASS (27 amplitude/CFO/SNR cases, 8 chunk sizes, noise, multiple bursts, reset)\n";queueTests();std::cout<<"queue/worker: PASS\n";readerTests();std::cout<<"offline sc16: PASS\n";}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}
+// Independent direct-IFFT legacy preamble fixture; no production LTF helper used.
+Samples preamble(double cfo, double snr=100, size_t prefix=300) {
+    const int ltfTones[]={
+        1,1,-1,-1,1,1,-1,1,-1,1,1,1,1,1,1,-1,-1,1,1,-1,1,-1,1,1,1,1,
+        0,1,-1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,1,1,1};
+    std::vector<std::complex<double>> ltf(64);
+    for (size_t n=0;n<64;++n) {
+        for (int bin=0;bin<64;++bin) {
+            const int k=bin<=31?bin:bin-64;
+            const double value=(k>=-26 && k<=26)?ltfTones[k+26]:0;
+            ltf[n]+=value*std::exp(std::complex<double>(0,2*std::numbers::pi*bin*double(n)/64))/64.0;
+        }
+    }
+    require(std::abs(ltf[0].real()-.15625)<1e-12,"reference LTF first-sample check");
+    auto result=waveform(.12,cfo,prefix,snr);
+    result.resize(prefix+320+300);
+    std::mt19937 rng(123);std::normal_distribution<double> noise(0,.12*std::pow(10,-snr/20)/std::sqrt(2.0));
+    for (size_t n=prefix+160;n<result.size();++n) {
+        std::complex<double> x(noise(rng),noise(rng));
+        if (n<prefix+320) {
+            const size_t offset=n-prefix-160;
+            const size_t k=offset<32?offset+32:(offset-32)%64;
+            x+=ltf[k]*(.12/std::sqrt(52.0/4096))*std::polar(1.0,2*std::numbers::pi*cfo*double(n)/20e6);
+        }
+        auto q=[](double v){return int16_t(std::clamp(std::lround(v*32768),-32768L,32767L));};
+        result[n]={q(x.real()),q(x.imag())};
+    }
+    return result;
+}
+WiFiDemodulator::Snapshot processWorker(const Samples& samples,size_t chunk) {
+    WiFiDemodulator worker;worker.enable(true,20e6);
+    for(size_t offset=0;offset<samples.size();offset+=chunk) {
+        const size_t count=std::min(chunk,samples.size()-offset);
+        worker.submit(std::span(samples).subspan(offset,count),offset,42,offset==0);
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+        while(worker.snapshot().processed_samples<offset+count && std::chrono::steady_clock::now()<deadline)std::this_thread::yield();
+        require(worker.snapshot().processed_samples>=offset+count,"LTF worker deadline");
+    }
+    return worker.snapshot();
+}
+void lltfTests() {
+    for(double cfo:{-190000.,0.,170000.}) for(double snr:{12.,100.}) {
+        const auto packet=preamble(cfo,snr);
+        for(size_t chunk:{1,73,256,4096}) {
+            const auto state=processWorker(packet,chunk);
+            require(state.error.empty(),"LTF processing error");
+            require(state.synchronized_packets==1,"LTF confirmation count");
+            const auto e=state.recent_sync.back();
+            require(e.segment==42,"LTF segment");
+            require(e.ltf_first_index==492 && e.packet_start_index==300,"LTF timing boundary");
+            require(std::abs(e.total_cfo_hz-cfo)<(snr<20?5000:50),"LTF refined CFO error");
+            require(e.correlation>.55,"LTF score");
+        }
+    }
+    require(processWorker(preamble(30000,100,0),31).recent_sync.at(0).packet_start_index==0,"segment-start packet timing");
+    auto badCp=preamble(0);std::fill(badCp.begin()+460,badCp.begin()+492,IQ{});
+    require(processWorker(badCp,83).synchronized_packets==0,"invalid LTF guard interval accepted");
+    auto badSecond=preamble(0);std::fill(badSecond.begin()+556,badSecond.begin()+620,IQ{});
+    require(processWorker(badSecond,83).synchronized_packets==0,"missing second LTF accepted");
+    require(processWorker(waveform(.12,40000),79).synchronized_packets==0,"STF alone confirmed as LTF");
+    Samples tone(1200);for(size_t i=0;i<tone.size();++i) {
+        const auto x=std::polar(3000.0,2*std::numbers::pi*120000*double(i)/20e6);
+        tone[i]={int16_t(x.real()),int16_t(x.imag())};
+    }
+    require(processWorker(tone,97).synchronized_packets==0,"tone confirmed as LTF");
+    auto multi=preamble(50000);auto second=preamble(-70000);multi.insert(multi.end(),second.begin(),second.end());
+    auto state=processWorker(multi,137);require(state.synchronized_packets==2,"multiple LTF packets");
+    require(state.recent_sync.back().packet_start_index==1220,"second LTF offset");
+    // A discontinuity between the LTF copies must cancel the pending candidate.
+    WiFiDemodulator worker;worker.enable(true,20e6);auto packet=preamble(80000);
+    worker.submit(std::span(packet).first(556),0,1,true);
+    worker.submit(std::span(packet).subspan(556),556,1,true);
+    const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    while(worker.snapshot().processed_samples<packet.size() && std::chrono::steady_clock::now()<end)std::this_thread::yield();
+    require(worker.snapshot().processed_samples==packet.size(),"LTF gap test deadline");
+    require(worker.snapshot().synchronized_packets==0,"LTF bridges discontinuity");
+}
+int main() {try {lltfTests();std::cout<<"L-LTF timing/CFO: PASS\n";accumulatorTests();std::cout<<"partial RX accumulator: PASS\n";detectorTests();std::cout<<"detector: PASS (27 amplitude/CFO/SNR cases, 8 chunk sizes, noise, multiple bursts, reset)\n";queueTests();std::cout<<"queue/worker: PASS\n";readerTests();std::cout<<"offline sc16: PASS\n";}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

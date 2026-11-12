@@ -208,6 +208,11 @@ void Application::ShowUSRPInterface()
                 const auto& last=wifi.recent.back();
                 ImGui::Text("Latest score %.3f; coarse CFO %.1f Hz",last.correlation,last.cfo_hz);
             }
+            ImGui::Text("L-LTF confirmed: %llu; rejected: %llu", static_cast<unsigned long long>(wifi.synchronized_packets), static_cast<unsigned long long>(wifi.rejected_candidates));
+            if (!wifi.recent_sync.empty()) {
+                const auto& sync=wifi.recent_sync.back();
+                ImGui::Text("LTF1: %llu; inferred start: %llu; total CFO: %.1f Hz", static_cast<unsigned long long>(sync.ltf_first_index), static_cast<unsigned long long>(sync.packet_start_index), sync.total_cfo_hz);
+            }
             for (const auto& event:wifi.recent)
                 ImGui::Text("Candidate segment %llu sample %llu: r=%.3f CFO=%.1f Hz P=%.6f", static_cast<unsigned long long>(event.segment),static_cast<unsigned long long>(event.sample_index),event.correlation,event.cfo_hz,event.power);
             if (!wifi.error.empty()) ImGui::TextWrapped("Wi-Fi: %s",wifi.error.c_str());
