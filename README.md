@@ -345,7 +345,8 @@ window** in a confirmed plateau. It can precede the actual burst onset because t
 window overlaps it. It is **not an exact packet start or OFDM symbol boundary**.
 The event's score, power and CFO describe the confirmation window.
 `CFO = arg(R) * Fs / (2π * 16)`; positive injected CFO gives positive estimates,
-unambiguous only within ±625 kHz at 20 MS/s. No CFO compensation is performed yet.
+unambiguous only within ±625 kHz at 20 MS/s. `LStfDetector` reports CFO without
+altering input; the worker applies coarse CFO correction during L-LTF matching.
 Autocorrelation alone can also trigger on other periodic signals or a tone; a
 candidate is not proof of a Wi-Fi packet. Long correlated plateaus are latched to
 suppress duplicates until the release condition is met.
